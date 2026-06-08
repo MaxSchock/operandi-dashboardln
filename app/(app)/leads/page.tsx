@@ -1,7 +1,10 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { Search } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardBody, Badge, EmptyState } from "@/components/ui";
+import { DateRangePicker } from "@/components/date-range-picker";
+import { resolveRange } from "@/lib/date-range";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -31,20 +34,23 @@ function lead(row: LeadJoinRow): LeadInfo | null {
 
 const STAGES = ["all", "pre_contact", "engaged_post", "invited", "accepted", "messaged", "replied", "qualified", "opted_out", "expired", "paused"];
 
-export default async function LeadsPage({ searchParams }: { searchParams: Promise<{ stage?: string; q?: string; source?: string }> }) {
+export default async function LeadsPage({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
   const params = await searchParams;
   const stage = params.stage ?? "all";
   const q = (params.q ?? "").trim();
   const source = params.source ?? "all";
+  const range = resolveRange(params, "30d");
 
   const sb = await createClient();
   let qb = sb
     .from("lead_state")
     .select("lead_id, current_stage, updated_at, leads!inner(id, full_name, headline, company, email, source, icp_segment)")
     .order("updated_at", { ascending: false })
-    .limit(200);
+    .limit(500);
 
   if (stage !== "all") qb = qb.eq("current_stage", stage);
+  if (range.sinceIso) qb = qb.gte("updated_at", range.sinceIso);
+  qb = qb.lte("updated_at", range.untilIso);
 
   const { data } = await qb;
   let rows = (data ?? []) as LeadJoinRow[];
@@ -66,9 +72,12 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="font-display text-2xl text-navy">Leads</h1>
-        <p className="text-sm text-slate-500">{rows.length} shown · filtered list</p>
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="font-display text-2xl text-navy">Leads</h1>
+          <p className="text-sm text-slate-500">{rows.length} shown · updated within {range.label.toLowerCase()}</p>
+        </div>
+        <Suspense><DateRangePicker defaultKey="30d" /></Suspense>
       </header>
 
       <Card>

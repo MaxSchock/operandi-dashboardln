@@ -1,35 +1,37 @@
+import Link from "next/link";
+import { Suspense } from "react";
+import { ArrowRight } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardBody, CardHeader, Badge, EmptyState } from "@/components/ui";
 import { KpiCard } from "@/components/kpi-card";
 import { FunnelChart } from "@/components/funnel-chart";
 import { ActivitySpark } from "@/components/activity-spark";
-import Link from "next/link";
-import { ArrowRight } from "lucide-react";
+import { DateRangePicker } from "@/components/date-range-picker";
+import { resolveRange, dayBuckets } from "@/lib/date-range";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-type StageRow = { current_stage: string };
-type EventRow = { occurred_at: string; event_type: string; channel: string; lead_id: number };
-type LeadRow = { id: number; full_name: string | null; headline: string | null; company: string | null };
+type EventRow = { occurred_at: string };
 
-function daysAgo(n: number): Date {
-  const d = new Date();
-  d.setUTCHours(0, 0, 0, 0);
-  d.setUTCDate(d.getUTCDate() - n);
-  return d;
-}
-
-async function fetchData() {
+async function fetchData(params: { range?: string; since?: string; until?: string }) {
+  const range = resolveRange(params, "14d");
   const sb = await createClient();
 
-  const since14 = daysAgo(13).toISOString();
-  const since7 = daysAgo(6).toISOString();
-
-  const [states, eventsTotal, eventsWindow, narrativesRes, recentLeadsRes] = await Promise.all([
+  const [states, eventsCurr, eventsPrev, narrativesRes, recentLeadsRes] = await Promise.all([
     sb.from("lead_state").select("current_stage").limit(10000),
-    sb.from("lead_events").select("occurred_at, event_type, channel, lead_id").gte("occurred_at", since14).limit(5000),
-    sb.from("lead_events").select("event_type, occurred_at").gte("occurred_at", since7).limit(5000),
+    sb.from("lead_events")
+      .select("occurred_at, event_type")
+      .gte("occurred_at", range.sinceIso ?? "1970-01-01")
+      .lte("occurred_at", range.untilIso)
+      .limit(20000),
+    range.prevSince
+      ? sb.from("lead_events")
+          .select("occurred_at")
+          .gte("occurred_at", range.prevSince.toISOString())
+          .lte("occurred_at", range.prevUntil!.toISOString())
+          .limit(20000)
+      : Promise.resolve({ data: [] as EventRow[] }),
     sb.from("weekly_narratives").select("body_md, week_starting, language").order("week_starting", { ascending: false }).limit(1),
     sb.from("lead_state")
       .select("lead_id, current_stage, updated_at, leads!inner(id, full_name, headline, company)")
@@ -38,77 +40,77 @@ async function fetchData() {
       .limit(8),
   ]);
 
-  const states14d = (states.data ?? []) as StageRow[];
-  const events14 = (eventsTotal.data ?? []) as EventRow[];
-
-  // Counts by stage
+  const stateRows = states.data ?? [];
   const counts: Record<string, number> = {};
-  for (const r of states14d) counts[r.current_stage] = (counts[r.current_stage] ?? 0) + 1;
+  for (const r of stateRows) counts[r.current_stage] = (counts[r.current_stage] ?? 0) + 1;
 
-  // Daily activity series
-  const byDay = new Map<string, number>();
-  for (let i = 13; i >= 0; i--) {
-    const k = daysAgo(i).toISOString().slice(0, 10);
-    byDay.set(k, 0);
-  }
-  for (const e of events14) {
-    const k = e.occurred_at.slice(0, 10);
-    if (byDay.has(k)) byDay.set(k, (byDay.get(k) ?? 0) + 1);
-  }
-  const series = Array.from(byDay.entries()).map(([day, count]) => ({ day: day.slice(5), count }));
+  const currEvents = (eventsCurr.data ?? []) as EventRow[];
+  const prevEvents = (eventsPrev.data ?? []) as EventRow[];
+  const deltaEvents = currEvents.length - prevEvents.length;
 
-  // KPI deltas: this 7d vs prev 7d using events
-  const win7 = (eventsWindow.data ?? []) as { event_type: string }[];
-  const prev7Count = events14.length - win7.length;
-  const deltaTotalEvents = win7.length - prev7Count;
+  // Build per-day series (only if we have a bounded range)
+  const series = (() => {
+    if (!range.since) return [];
+    const buckets = dayBuckets(range.since, range.until);
+    const byDay = new Map<string, number>(buckets.map(d => [d, 0]));
+    for (const e of currEvents) {
+      const k = e.occurred_at.slice(0, 10);
+      if (byDay.has(k)) byDay.set(k, (byDay.get(k) ?? 0) + 1);
+    }
+    return Array.from(byDay.entries()).map(([day, count]) => ({ day: day.slice(5), count }));
+  })();
 
-  const totalLeads = states14d.length;
-  const accepted = counts["accepted"] ?? 0;
-  const replied = counts["replied"] ?? 0;
-  const qualified = counts["qualified"] ?? 0;
-
-  // Recent hot leads (replied + qualified)
   const recentRaw = (recentLeadsRes.data ?? []) as Array<{
-    lead_id: number;
-    current_stage: string;
-    updated_at: string;
-    leads: { id: number; full_name: string | null; headline: string | null; company: string | null } | LeadRow[] | null;
+    lead_id: number; current_stage: string; updated_at: string;
+    leads: { id: number; full_name: string | null; headline: string | null; company: string | null }
+         | Array<{ id: number; full_name: string | null; headline: string | null; company: string | null }>
+         | null;
   }>;
   const hot = recentRaw.map(r => {
     const lead = Array.isArray(r.leads) ? r.leads[0] : r.leads;
     return {
       id: r.lead_id,
       stage: r.current_stage,
-      updated_at: r.updated_at,
       full_name: lead?.full_name ?? "—",
       headline: lead?.headline ?? "",
       company: lead?.company ?? "",
     };
   });
 
-  const narrative = (narrativesRes.data ?? [])[0];
-
-  return { counts, series, totalLeads, accepted, replied, qualified, deltaTotalEvents, hot, narrative };
+  return {
+    range,
+    counts,
+    series,
+    totalLeads: stateRows.length,
+    accepted: counts["accepted"] ?? 0,
+    replied: counts["replied"] ?? 0,
+    qualified: counts["qualified"] ?? 0,
+    deltaEvents,
+    hot,
+    narrative: (narrativesRes.data ?? [])[0],
+  };
 }
 
-export default async function OverviewPage() {
-  const { counts, series, totalLeads, accepted, replied, qualified, deltaTotalEvents, hot, narrative } = await fetchData();
+export default async function OverviewPage({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
+  const params = await searchParams;
+  const { range, counts, series, totalLeads, accepted, replied, qualified, deltaEvents, hot, narrative } = await fetchData(params);
   const funnelData = Object.entries(counts).map(([current_stage, count]) => ({ current_stage, count }));
 
   return (
     <div className="space-y-6">
-      <header className="flex items-baseline justify-between">
+      <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl text-navy">Overview</h1>
-          <p className="text-sm text-slate-500">Last 14 days. Refreshed on load.</p>
+          <p className="text-sm text-slate-500">Window: {range.label}</p>
         </div>
+        <Suspense><DateRangePicker /></Suspense>
       </header>
 
       <section className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <KpiCard label="Total leads"   value={totalLeads} />
-        <KpiCard label="Accepted"      value={accepted}   accent />
-        <KpiCard label="Replied"       value={replied}    accent delta={null} />
-        <KpiCard label="Qualified"     value={qualified}  accent />
+        <KpiCard label="Total leads" value={totalLeads} />
+        <KpiCard label="Accepted"    value={accepted}  accent />
+        <KpiCard label="Replied"     value={replied}   accent />
+        <KpiCard label="Qualified"   value={qualified} accent />
       </section>
 
       <section className="grid gap-6 md:grid-cols-3">
@@ -123,10 +125,16 @@ export default async function OverviewPage() {
           <CardHeader
             title="Activity"
             hint="Events per day"
-            action={<Badge tone={deltaTotalEvents >= 0 ? "green" : "red"}>{deltaTotalEvents >= 0 ? "+" : ""}{deltaTotalEvents} vs prev 7d</Badge>}
+            action={range.key === "all"
+              ? <Badge tone="slate">—</Badge>
+              : <Badge tone={deltaEvents >= 0 ? "green" : "red"}>{deltaEvents >= 0 ? "+" : ""}{deltaEvents} vs prev</Badge>
+            }
           />
           <CardBody>
-            <ActivitySpark data={series} />
+            {series.length > 0
+              ? <ActivitySpark data={series} />
+              : <EmptyState title="Pick a bounded range to chart activity" />
+            }
           </CardBody>
         </Card>
       </section>
@@ -134,7 +142,7 @@ export default async function OverviewPage() {
       <section className="grid gap-6 md:grid-cols-2">
         <Card>
           <CardHeader title="Hot leads" hint="Recently replied, accepted or qualified" action={
-            <Link href="/leads" className="text-xs text-electric hover:underline inline-flex items-center gap-1">
+            <Link href="/leads" className="inline-flex items-center gap-1 text-xs text-electric hover:underline">
               All leads <ArrowRight className="h-3 w-3" />
             </Link>
           } />

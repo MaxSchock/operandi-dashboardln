@@ -1,6 +1,9 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardBody, Badge, EmptyState } from "@/components/ui";
+import { DateRangePicker } from "@/components/date-range-picker";
+import { resolveRange } from "@/lib/date-range";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -27,15 +30,18 @@ const EVENT_TONE: Record<string, "slate" | "green" | "amber" | "red" | "electric
   opt_out: "red",
 };
 
-export default async function ActivityPage({ searchParams }: { searchParams: Promise<{ type?: string; channel?: string }> }) {
+export default async function ActivityPage({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
   const params = await searchParams;
   const typeFilter = params.type ?? "all";
   const channelFilter = params.channel ?? "all";
+  const range = resolveRange(params, "14d");
 
   const sb = await createClient();
-  let qb = sb.from("lead_events").select("*").order("occurred_at", { ascending: false }).limit(150);
+  let qb = sb.from("lead_events").select("*").order("occurred_at", { ascending: false }).limit(300);
   if (typeFilter !== "all") qb = qb.eq("event_type", typeFilter);
   if (channelFilter !== "all") qb = qb.eq("channel", channelFilter);
+  if (range.sinceIso) qb = qb.gte("occurred_at", range.sinceIso);
+  qb = qb.lte("occurred_at", range.untilIso);
 
   const { data } = await qb;
   const rows = (data ?? []) as EventRow[];
@@ -45,9 +51,12 @@ export default async function ActivityPage({ searchParams }: { searchParams: Pro
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="font-display text-2xl text-navy">Activity</h1>
-        <p className="text-sm text-slate-500">All inbound + outbound events across your leads.</p>
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="font-display text-2xl text-navy">Activity</h1>
+          <p className="text-sm text-slate-500">{rows.length} events · {range.label.toLowerCase()}</p>
+        </div>
+        <Suspense><DateRangePicker /></Suspense>
       </header>
 
       <Card>
@@ -72,7 +81,7 @@ export default async function ActivityPage({ searchParams }: { searchParams: Pro
       <Card>
         <CardBody className="p-0">
           {rows.length === 0 ? (
-            <EmptyState title="Nothing logged yet" hint="Events show up as soon as Unipile starts pushing webhooks." />
+            <EmptyState title="Nothing in this window" hint="Widen the date range or wait for Unipile webhooks." />
           ) : (
             <ol className="divide-y">
               {rows.map(e => (
