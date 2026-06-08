@@ -1,4 +1,4 @@
-import { headers } from "next/headers";
+import { createClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardBody, Badge } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -10,16 +10,59 @@ type Health = {
   checks: Record<string, unknown>;
 };
 
-async function fetchHealth(): Promise<Health> {
-  const h = await headers();
-  const host = h.get("host") ?? "localhost:3000";
-  const proto = h.get("x-forwarded-proto") ?? "https";
-  const res = await fetch(`${proto}://${host}/api/health`, { cache: "no-store" });
-  return res.json();
+/**
+ * Inline equivalent of /api/health, but executed with the user's RLS
+ * session cookies (server fetch wouldn't carry them — that was the 500).
+ */
+async function computeHealth(): Promise<Health> {
+  const checks: Record<string, unknown> = {};
+  let status: Health["status"] = "ok";
+
+  try {
+    const sb = await createClient();
+    const { data: isAdmin, error: adminErr } = await sb.rpc("current_user_is_admin");
+    checks["supabase_rpc"] = adminErr
+      ? { ok: false, error: adminErr.message }
+      : { ok: true, is_admin: !!isAdmin };
+    if (adminErr) status = "degraded";
+
+    const { data: lastAction } = await sb
+      .from("lead_actions")
+      .select("id, created_at, status, action_type")
+      .order("created_at", { ascending: false })
+      .limit(1);
+    checks["last_action"] = lastAction?.[0] ?? null;
+
+    const { data: lastEvent } = await sb
+      .from("lead_events")
+      .select("id, channel, event_type, occurred_at")
+      .order("occurred_at", { ascending: false })
+      .limit(1);
+    checks["last_event"] = lastEvent?.[0] ?? null;
+
+    const { data: arms } = await sb
+      .from("bandit_arms")
+      .select("client_slug, dimension, key, active, observations");
+    checks["bandit_arms_total"] = arms?.length ?? 0;
+    checks["bandit_arms_active"] = arms?.filter((a: { active: boolean }) => a.active).length ?? 0;
+
+    if (lastAction?.[0]?.created_at) {
+      const ageMin = (Date.now() - new Date(lastAction[0].created_at).getTime()) / 60000;
+      checks["last_action_age_minutes"] = Math.round(ageMin);
+      if (ageMin > 60) status = "degraded";
+    } else {
+      checks["last_action_age_minutes"] = null;
+    }
+  } catch (e) {
+    status = "down";
+    checks["error"] = e instanceof Error ? e.message : String(e);
+  }
+
+  return { status, checks, generated_at: new Date().toISOString() };
 }
 
 export default async function HealthPage() {
-  const h = await fetchHealth();
+  const h = await computeHealth();
 
   return (
     <div className="space-y-6">
