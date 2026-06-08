@@ -9,12 +9,18 @@ export const dynamic = "force-dynamic";
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const sb = await createClient();
   const { data: { user } } = await sb.auth.getUser();
-  if (!user) redirect("/login");
+  if (!user) {
+    redirect("/login");
+  }
+  // From here `user` is non-null; the redirect above terminates the request,
+  // but TypeScript's `redirect` return type isn't `never` until Next 15+, so
+  // re-bind to a non-nullable local.
+  const u = user;
 
   const { data: cu } = await sb
     .from("client_users")
     .select("role, client_slug, display_name, email")
-    .eq("user_id", user.id)
+    .eq("user_id", u.id)
     .maybeSingle();
 
   const isAdmin = cu?.role === "operandi_admin";
@@ -53,8 +59,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           ))}
         </nav>
         <div className="border-t p-3 text-xs">
-          <div className="mb-2 truncate text-slate-600" title={cu?.email ?? user.email ?? ""}>
-            {cu?.display_name ?? user.email}
+          <div className="mb-2 truncate text-slate-600" title={cu?.email ?? u.email ?? ""}>
+            {cu?.display_name ?? u.email}
           </div>
           <SignOutButton />
         </div>

@@ -6,20 +6,28 @@ import { Card, CardHeader, CardBody, Badge, EmptyState } from "@/components/ui";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+type LeadInfo = {
+  id: number;
+  full_name: string | null;
+  headline: string | null;
+  company: string | null;
+  email: string | null;
+  source: string | null;
+  icp_segment: string | null;
+};
+
 type LeadJoinRow = {
   lead_id: number;
   current_stage: string;
   updated_at: string;
-  leads: {
-    id: number;
-    full_name: string | null;
-    headline: string | null;
-    company: string | null;
-    email: string | null;
-    source: string | null;
-    icp_segment: string | null;
-  } | null;
+  // Supabase typed-join returns the related rows as an array even when it's 1:1.
+  leads: LeadInfo[] | LeadInfo | null;
 };
+
+function lead(row: LeadJoinRow): LeadInfo | null {
+  if (!row.leads) return null;
+  return Array.isArray(row.leads) ? (row.leads[0] ?? null) : row.leads;
+}
 
 const STAGES = ["all", "pre_contact", "engaged_post", "invited", "accepted", "messaged", "replied", "qualified", "opted_out", "expired", "paused"];
 
@@ -44,17 +52,17 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
   if (q) {
     const needle = q.toLowerCase();
     rows = rows.filter(r => {
-      const lead = r.leads;
+      const li = lead(r);
       return (
-        (lead?.full_name ?? "").toLowerCase().includes(needle) ||
-        (lead?.company ?? "").toLowerCase().includes(needle) ||
-        (lead?.email ?? "").toLowerCase().includes(needle)
+        (li?.full_name ?? "").toLowerCase().includes(needle) ||
+        (li?.company ?? "").toLowerCase().includes(needle) ||
+        (li?.email ?? "").toLowerCase().includes(needle)
       );
     });
   }
-  if (source !== "all") rows = rows.filter(r => r.leads?.source === source);
+  if (source !== "all") rows = rows.filter(r => lead(r)?.source === source);
 
-  const sources = Array.from(new Set(rows.map(r => r.leads?.source).filter(Boolean))) as string[];
+  const sources = Array.from(new Set(rows.map(r => lead(r)?.source).filter(Boolean))) as string[];
 
   return (
     <div className="space-y-6">
@@ -109,21 +117,24 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
                 </tr>
               </thead>
               <tbody>
-                {rows.map(r => (
-                  <tr key={r.lead_id} className="border-t hover:bg-slate-50">
-                    <td className="px-5 py-2.5">
-                      <Link href={`/leads/${r.lead_id}`} className="font-medium text-navy hover:underline">
-                        {r.leads?.full_name ?? "—"}
-                      </Link>
-                    </td>
-                    <td className="px-5 py-2.5 text-slate-600">{r.leads?.headline ?? "—"}</td>
-                    <td className="px-5 py-2.5 text-slate-600">{r.leads?.company ?? "—"}</td>
-                    <td className="px-5 py-2.5 text-slate-500 text-xs">{r.leads?.source ?? "—"}</td>
-                    <td className="px-5 py-2.5 text-slate-500 text-xs">{r.leads?.icp_segment ?? "—"}</td>
-                    <td className="px-5 py-2.5"><StageBadge stage={r.current_stage} /></td>
-                    <td className="px-5 py-2.5 text-xs text-slate-500">{new Date(r.updated_at).toLocaleDateString()}</td>
-                  </tr>
-                ))}
+                {rows.map(r => {
+                  const li = lead(r);
+                  return (
+                    <tr key={r.lead_id} className="border-t hover:bg-slate-50">
+                      <td className="px-5 py-2.5">
+                        <Link href={`/leads/${r.lead_id}`} className="font-medium text-navy hover:underline">
+                          {li?.full_name ?? "—"}
+                        </Link>
+                      </td>
+                      <td className="px-5 py-2.5 text-slate-600">{li?.headline ?? "—"}</td>
+                      <td className="px-5 py-2.5 text-slate-600">{li?.company ?? "—"}</td>
+                      <td className="px-5 py-2.5 text-slate-500 text-xs">{li?.source ?? "—"}</td>
+                      <td className="px-5 py-2.5 text-slate-500 text-xs">{li?.icp_segment ?? "—"}</td>
+                      <td className="px-5 py-2.5"><StageBadge stage={r.current_stage} /></td>
+                      <td className="px-5 py-2.5 text-xs text-slate-500">{new Date(r.updated_at).toLocaleDateString()}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
