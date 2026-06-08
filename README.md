@@ -4,7 +4,7 @@ Multi-tenant outreach dashboard for Operandi clients + master view for Max.
 
 - Next.js 14 App Router
 - Supabase Auth (magic link) + RLS for tenant isolation
-- Deployed to Vercel; targets `dashboard.operandiconsultancy.com`
+- Deployed to Vercel; targets `dashboardln.operandiconsultancy.com`
 - Reads from Supabase project `xepotlbqlwmriwievyvc`, schema `outreach`
 
 ## Setup
