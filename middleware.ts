@@ -1,5 +1,7 @@
-import { createServerClient } from "@supabase/ssr";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+
+type CookieToSet = { name: string; value: string; options: CookieOptions };
 
 const PUBLIC_PATHS = ["/login", "/api/auth/callback"];
 
@@ -11,8 +13,10 @@ export async function middleware(req: NextRequest) {
     {
       cookies: {
         getAll() { return req.cookies.getAll(); },
-        setAll(items) {
-          items.forEach(({ name, value, options }) => res.cookies.set(name, value, options));
+        setAll(items: CookieToSet[]) {
+          items.forEach(({ name, value, options }) =>
+            res.cookies.set(name, value, options),
+          );
         },
       },
     },
