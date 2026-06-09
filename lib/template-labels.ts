@@ -90,34 +90,74 @@ export function labelFor({ channel, stage, arm_key }: TemplateKey): TemplateLabe
     };
   }
 
-  // LinkedIn first message after accept
+  // LinkedIn message sequence — msg_1, msg_2, msg_3
   if (stage === "act_li_message") {
-    if (!arm_key) {
+    if (arm_key === "msg_1" || !arm_key) {
       return {
         channelLabel: ch,
-        title: "First message after the prospect accepts the invite",
+        title: "First LinkedIn message after the invite is accepted",
         when:
           "Sent 48 hours after the prospect accepts the connection request, " +
-          "regardless of which invite arm got them in. This is the system's " +
-          "opening message in the chat.",
+          "regardless of which invite arm got them in. The system's opening line " +
+          "in the chat.",
+        bodyMode: "needed",
+      };
+    }
+    if (arm_key === "msg_2") {
+      return {
+        channelLabel: ch,
+        title: "LinkedIn follow-up #2 (relance)",
+        when:
+          "Sent 3–4 days after the first message if the prospect hasn't replied. " +
+          "Introduces the brand for the first time with a soft 'pattern' framing.",
+        bodyMode: "needed",
+      };
+    }
+    if (arm_key === "msg_3") {
+      return {
+        channelLabel: ch,
+        title: "LinkedIn follow-up #3 (final relance)",
+        when:
+          "Sent 4–5 days after msg_2 if still no reply. Last attempt on LinkedIn " +
+          "before the lead either gets the email bridge or is archived.",
         bodyMode: "needed",
       };
     }
     return {
       channelLabel: ch,
-      title: `Follow-up message — ${arm_key}`,
+      title: `LinkedIn message — ${arm_key}`,
       when: "Outbound message inside an existing LinkedIn chat.",
       bodyMode: "needed",
     };
   }
 
-  // Email send (V2+, not used today but documented)
+  // Email sequence — email_1 (bridge after LI silent), email_2 (final nudge)
   if (stage === "act_email_send") {
+    if (arm_key === "email_1") {
+      return {
+        channelLabel: ch,
+        title: "Email bridge after LinkedIn goes silent",
+        when:
+          "Sent ~7 days after msg_3 with no reply on LinkedIn. Explicit channel " +
+          "switch — short subject line + body that names the LinkedIn touch and " +
+          "moves the offer into the inbox.",
+        bodyMode: "needed",
+      };
+    }
+    if (arm_key === "email_2") {
+      return {
+        channelLabel: ch,
+        title: "Final email nudge",
+        when:
+          "Sent 5–6 days after email_1 with no reply. Soft close: no pressure, " +
+          "stays available. After this, the lead is archived.",
+        bodyMode: "needed",
+      };
+    }
     return {
       channelLabel: ch,
       title: arm_key ? `Cold email — ${arm_key}` : "Cold email",
-      when:
-        "Sent via the client's mailbox when the channel-next bandit picks email after LinkedIn stalled.",
+      when: "Sent via the client's mailbox in the email follow-up sequence.",
       bodyMode: "needed",
     };
   }
