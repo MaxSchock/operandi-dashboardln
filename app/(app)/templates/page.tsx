@@ -77,9 +77,21 @@ export default async function TemplatesPage() {
                         approved by {t.approved_by ?? "—"} · {new Date(t.approved_at).toLocaleDateString()}
                       </span>
                     </div>
-                    {t.body
-                      ? <pre className="mt-3 whitespace-pre-wrap rounded-md bg-slate-50 p-3 text-xs leading-5 text-slate-700">{t.body}</pre>
-                      : <div className="mt-3 rounded-md bg-slate-50 p-3 text-xs italic text-slate-400">No body (variants only / empty placeholder)</div>}
+                    {t.body ? (
+                      <pre className="mt-3 whitespace-pre-wrap rounded-md bg-slate-50 p-3 text-xs leading-5 text-slate-700">{t.body}</pre>
+                    ) : label.bodyMode === "intentionally_bare" ? (
+                      <div className="mt-3 rounded-md border border-dashed border-slate-300 bg-slate-50 p-3 text-xs italic text-slate-500">
+                        No text by design — LinkedIn receives an empty connection request.
+                      </div>
+                    ) : label.bodyMode === "variants_only" ? (
+                      <div className="mt-3 rounded-md border border-dashed border-slate-300 bg-slate-50 p-3 text-xs italic text-slate-500">
+                        No single body — the decisor picks one of the variants below at random.
+                      </div>
+                    ) : (
+                      <div className="mt-3 rounded-md border border-dashed border-amber-300 bg-amber-50 p-3 text-xs italic text-amber-700">
+                        Body is empty — edit it before this template goes live.
+                      </div>
+                    )}
                     {variants && variants.length > 0 && (
                       <div className="mt-3">
                         <div className="text-[11px] uppercase tracking-wide text-slate-400">Variants ({variants.length})</div>

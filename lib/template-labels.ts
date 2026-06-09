@@ -15,6 +15,13 @@ export type TemplateLabel = {
   title: string;
   when: string;            // one-liner: "Sent when …"
   channelLabel: string;    // "LinkedIn" / "Email" / "Voice" …
+  /**
+   * What the body field means for THIS template:
+   *  - "needed":             empty body == draft / missing copy
+   *  - "intentionally_bare": empty body == design (bare connection request)
+   *  - "variants_only":      body is ignored, the variants array is what's sent
+   */
+  bodyMode: "needed" | "intentionally_bare" | "variants_only";
 };
 
 const CHANNEL_LABELS: Record<string, string> = {
@@ -37,6 +44,7 @@ export function labelFor({ channel, stage, arm_key }: TemplateKey): TemplateLabe
         "only when the bandit picks the `engage_then_invite_no_note` strategy. " +
         "If multiple variants are filled in, one is chosen at random per send. " +
         "Comments must not mention the brand.",
+      bodyMode: "variants_only",
     };
   }
 
@@ -48,7 +56,8 @@ export function labelFor({ channel, stage, arm_key }: TemplateKey): TemplateLabe
         title: "Cold invite — no note attached",
         when:
           "Sent as a bare connection request when the bandit picks the " +
-          "`cold_invite_no_note` strategy. Body is intentionally empty.",
+          "`cold_invite_no_note` strategy. No text is shown to the prospect.",
+        bodyMode: "intentionally_bare",
       };
     }
     if (arm_key === "engage_then_invite_no_note") {
@@ -59,6 +68,7 @@ export function labelFor({ channel, stage, arm_key }: TemplateKey): TemplateLabe
           "Sent ~60 minutes after the comment under the prospect's post, " +
           "when the bandit picks the `engage_then_invite_no_note` strategy. " +
           "Also without a note (the post engagement does the warming up).",
+        bodyMode: "intentionally_bare",
       };
     }
     if (arm_key === "invite_with_note_300") {
@@ -69,12 +79,14 @@ export function labelFor({ channel, stage, arm_key }: TemplateKey): TemplateLabe
           "Sent as a connection request with this note attached, when the bandit " +
           "picks the `invite_with_note_300` strategy. Max 300 characters; longer " +
           "bodies are truncated by Unipile.",
+        bodyMode: "needed",
       };
     }
     return {
       channelLabel: ch,
       title: `Invite — ${arm_key ?? "default"}`,
       when: "LinkedIn connection request body for this bandit arm.",
+      bodyMode: "needed",
     };
   }
 
@@ -88,12 +100,14 @@ export function labelFor({ channel, stage, arm_key }: TemplateKey): TemplateLabe
           "Sent 48 hours after the prospect accepts the connection request, " +
           "regardless of which invite arm got them in. This is the system's " +
           "opening message in the chat.",
+        bodyMode: "needed",
       };
     }
     return {
       channelLabel: ch,
       title: `Follow-up message — ${arm_key}`,
       when: "Outbound message inside an existing LinkedIn chat.",
+      bodyMode: "needed",
     };
   }
 
@@ -104,6 +118,7 @@ export function labelFor({ channel, stage, arm_key }: TemplateKey): TemplateLabe
       title: arm_key ? `Cold email — ${arm_key}` : "Cold email",
       when:
         "Sent via the client's mailbox when the channel-next bandit picks email after LinkedIn stalled.",
+      bodyMode: "needed",
     };
   }
 
@@ -111,5 +126,6 @@ export function labelFor({ channel, stage, arm_key }: TemplateKey): TemplateLabe
     channelLabel: ch,
     title: arm_key ? `${stage} — ${arm_key}` : stage,
     when: "No description for this combination yet.",
+    bodyMode: "needed",
   };
 }
