@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardBody, Badge } from "@/components/ui";
+import { labelFor } from "@/lib/template-labels";
 
 export const dynamic = "force-dynamic";
 
@@ -44,18 +45,25 @@ export default async function EditTemplate({ params }: { params: Promise<{ id: s
         </Link>
       </div>
 
-      <header>
-        <h1 className="font-display text-2xl text-navy">Edit template #{t.id}</h1>
-        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-          <Badge tone="slate">{t.client_slug}</Badge>
-          <Badge tone="slate">{t.channel}</Badge>
-          <Badge tone="electric">{t.stage}</Badge>
-          <Badge tone="slate">{t.language}</Badge>
-          {t.arm_key && <Badge tone="amber">{t.arm_key}</Badge>}
-          {!t.active && <Badge tone="red">inactive</Badge>}
-          {t.approved_by === "claude-needs-max-review" && <Badge tone="amber">needs review</Badge>}
-        </div>
-      </header>
+      {(() => {
+        const label = labelFor({ channel: t.channel, stage: t.stage, arm_key: t.arm_key });
+        return (
+          <header>
+            <h1 className="font-display text-2xl text-navy">{label.title}</h1>
+            <p className="mt-1 text-sm text-slate-500">{label.when}</p>
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+              <Badge tone="slate">{t.client_slug}</Badge>
+              <Badge tone="slate">{label.channelLabel}</Badge>
+              <Badge tone="slate">{t.language.toUpperCase()}</Badge>
+              {!t.active && <Badge tone="red">inactive</Badge>}
+              {t.approved_by === "claude-needs-max-review" && <Badge tone="amber">needs review</Badge>}
+              <span className="text-[11px] text-slate-400">
+                stage: {t.stage} · arm: {t.arm_key ?? "—"} · row #{t.id}
+              </span>
+            </div>
+          </header>
+        );
+      })()}
 
       <Card>
         <CardHeader title="Body & variants" hint="Saving will mark you as the approver." />

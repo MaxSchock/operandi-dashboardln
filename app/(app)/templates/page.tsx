@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardBody, Badge, EmptyState } from "@/components/ui";
+import { labelFor } from "@/lib/template-labels";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -53,17 +54,27 @@ export default async function TemplatesPage() {
               {list.map(t => {
                 const variants = (t.meta?.variants as string[] | undefined) ?? null;
                 const needsReview = t.approved_by === "claude-needs-max-review";
+                const label = labelFor({ channel: t.channel, stage: t.stage, arm_key: t.arm_key });
                 return (
                   <div key={t.id} className="rounded-lg border p-4">
-                    <div className="flex flex-wrap items-center gap-2 text-xs">
-                      <Badge tone="slate">{t.channel}</Badge>
-                      <Badge tone="electric">{t.stage}</Badge>
-                      <Badge tone="slate">{t.language}</Badge>
-                      {t.arm_key && <Badge tone="amber">{t.arm_key}</Badge>}
-                      {!t.active && <Badge tone="red">inactive</Badge>}
-                      {needsReview && <Badge tone="amber">needs review</Badge>}
-                      <span className="ml-auto text-[11px] text-slate-400">
-                        {t.approved_by ?? "—"} · {new Date(t.approved_at).toLocaleDateString()}
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-display text-sm text-navy">{label.title}</div>
+                        <p className="mt-1 text-xs leading-5 text-slate-500">{label.when}</p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                        <Badge tone="slate">{label.channelLabel}</Badge>
+                        <Badge tone="slate">{t.language.toUpperCase()}</Badge>
+                        {!t.active && <Badge tone="red">inactive</Badge>}
+                        {needsReview && <Badge tone="amber">needs review</Badge>}
+                      </div>
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-wide text-slate-400">
+                      <span>stage: {t.stage}</span>
+                      <span>·</span>
+                      <span>arm: {t.arm_key ?? "—"}</span>
+                      <span className="ml-auto normal-case tracking-normal text-slate-400">
+                        approved by {t.approved_by ?? "—"} · {new Date(t.approved_at).toLocaleDateString()}
                       </span>
                     </div>
                     {t.body
