@@ -24,11 +24,17 @@ type TemplateRow = {
 export default async function TemplatesPage() {
   const sb = await createClient();
   const scope = await getClientScope();
+  const { data: { user } } = await sb.auth.getUser();
   const tplQ = sb.from("templates_approved").select("*").order("client_slug").order("stage");
   const tplPromise = scope ? tplQ.eq("client_slug", scope) : tplQ;
+  // Filter client_users by user_id — admins can see every row otherwise and
+  // maybeSingle() bails (returns null), making isAdmin false on this page.
+  const userInfoPromise = user
+    ? sb.from("client_users").select("role").eq("user_id", user.id).maybeSingle()
+    : Promise.resolve({ data: null });
   const [{ data }, { data: userInfo }] = await Promise.all([
     tplPromise,
-    sb.from("client_users").select("role").maybeSingle(),
+    userInfoPromise,
   ]);
   const rows = (data ?? []) as TemplateRow[];
   const isAdmin = userInfo?.role === "operandi_admin";
