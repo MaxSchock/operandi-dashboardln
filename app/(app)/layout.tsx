@@ -35,7 +35,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const { data: clientRows } = isAdmin
     ? await sbPublic.from("clients_master")
         .select("client_slug, client_display_name")
-        .eq("has_outreach_product", true)
+        .eq("outreach_engine", "v2")
         .order("client_slug")
     : { data: [] as { client_slug: string; client_display_name: string | null }[] };
   const scopeOptions = (clientRows ?? []).map(r => ({
