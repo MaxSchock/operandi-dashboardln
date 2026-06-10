@@ -21,6 +21,7 @@ type LeadInfo = {
 
 type LeadJoinRow = {
   lead_id: number;
+  client_slug: string;
   current_stage: string;
   updated_at: string;
   // Supabase typed-join returns the related rows as an array even when it's 1:1.
@@ -39,16 +40,18 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
   const stage = params.stage ?? "all";
   const q = (params.q ?? "").trim();
   const source = params.source ?? "all";
+  const client = params.client ?? "all";
   const range = resolveRange(params, "30d");
 
   const sb = await createClient();
   let qb = sb
     .from("lead_state")
-    .select("lead_id, current_stage, updated_at, leads!inner(id, full_name, headline, company, email, source, icp_segment)")
+    .select("lead_id, client_slug, current_stage, updated_at, leads!inner(id, full_name, headline, company, email, source, icp_segment)")
     .order("updated_at", { ascending: false })
     .limit(500);
 
   if (stage !== "all") qb = qb.eq("current_stage", stage);
+  if (client !== "all") qb = qb.eq("client_slug", client);
   if (range.sinceIso) qb = qb.gte("updated_at", range.sinceIso);
   qb = qb.lte("updated_at", range.untilIso);
 
@@ -69,6 +72,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
   if (source !== "all") rows = rows.filter(r => lead(r)?.source === source);
 
   const sources = Array.from(new Set(rows.map(r => lead(r)?.source).filter(Boolean))) as string[];
+  const clients = Array.from(new Set(rows.map(r => r.client_slug).filter(Boolean))).sort();
 
   return (
     <div className="space-y-6">
@@ -83,7 +87,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
       <Card>
         <CardHeader title="Filters" />
         <CardBody>
-          <form className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_10rem_10rem_5rem]">
+          <form className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_9rem_9rem_9rem_5rem]">
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
@@ -94,6 +98,10 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
                 className="w-full rounded-md border pl-9 pr-3 py-2 text-sm"
               />
             </div>
+            <select name="client" defaultValue={client} className="rounded-md border px-3 py-2 text-sm">
+              <option value="all">All clients</option>
+              {clients.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
             <select name="stage" defaultValue={stage} className="rounded-md border px-3 py-2 text-sm">
               {STAGES.map(s => <option key={s} value={s}>{s === "all" ? "All stages" : s.replace("_", " ")}</option>)}
             </select>
@@ -116,6 +124,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-left text-[11px] uppercase tracking-wide text-slate-500">
                 <tr>
+                  <th className="px-5 py-3">Client</th>
                   <th className="px-5 py-3">Name</th>
                   <th className="px-5 py-3">Headline</th>
                   <th className="px-5 py-3">Company</th>
@@ -130,6 +139,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
                   const li = lead(r);
                   return (
                     <tr key={r.lead_id} className="border-t hover:bg-slate-50">
+                      <td className="px-5 py-2.5"><Badge tone="slate">{r.client_slug}</Badge></td>
                       <td className="px-5 py-2.5">
                         <Link href={`/leads/${r.lead_id}`} className="font-medium text-navy hover:underline">
                           {li?.full_name ?? "—"}
