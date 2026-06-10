@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardBody, Badge, EmptyState } from "@/components/ui";
 import { DateRangePicker } from "@/components/date-range-picker";
 import { resolveRange } from "@/lib/date-range";
+import { getClientScope } from "@/lib/scope";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -37,7 +38,9 @@ export default async function ActivityPage({ searchParams }: { searchParams: Pro
   const range = resolveRange(params, "14d");
 
   const sb = await createClient();
+  const scope = await getClientScope();
   let qb = sb.from("lead_events").select("*").order("occurred_at", { ascending: false }).limit(300);
+  if (scope) qb = qb.eq("client_slug", scope);
   if (typeFilter !== "all") qb = qb.eq("event_type", typeFilter);
   if (channelFilter !== "all") qb = qb.eq("channel", channelFilter);
   if (range.sinceIso) qb = qb.gte("occurred_at", range.sinceIso);

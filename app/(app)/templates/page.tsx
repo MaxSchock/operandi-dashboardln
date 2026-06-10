@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardBody, Badge, EmptyState } from "@/components/ui";
 import { labelFor } from "@/lib/template-labels";
+import { getClientScope } from "@/lib/scope";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -22,8 +23,11 @@ type TemplateRow = {
 
 export default async function TemplatesPage() {
   const sb = await createClient();
+  const scope = await getClientScope();
+  const tplQ = sb.from("templates_approved").select("*").order("client_slug").order("stage");
+  const tplPromise = scope ? tplQ.eq("client_slug", scope) : tplQ;
   const [{ data }, { data: userInfo }] = await Promise.all([
-    sb.from("templates_approved").select("*").order("client_slug").order("stage"),
+    tplPromise,
     sb.from("client_users").select("role").maybeSingle(),
   ]);
   const rows = (data ?? []) as TemplateRow[];

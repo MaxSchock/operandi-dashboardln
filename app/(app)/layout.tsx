@@ -3,6 +3,8 @@ import Link from "next/link";
 import { LayoutDashboard, Users, Inbox, Sparkles, FileText, Activity, Settings, LogOut, Shield } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { SignOutButton } from "@/components/sign-out-button";
+import { ClientScopeSelector } from "@/components/client-scope-selector";
+import { getClientScope } from "@/lib/scope";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +26,24 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     .maybeSingle();
 
   const isAdmin = cu?.role === "operandi_admin";
-  const tenant = isAdmin ? "All clients" : (cu?.client_slug ?? "—");
+  const scope = await getClientScope();
+
+  // Admins can switch between any v2 client; non-admins are pinned to their
+  // own slug (RLS will reject anything else anyway).
+  const { data: clientRows } = isAdmin
+    ? await sb.from("clients_master")
+        .select("client_slug, client_display_name")
+        .eq("has_outreach_product", true)
+        .order("client_slug")
+    : { data: [] as { client_slug: string; client_display_name: string | null }[] };
+  const scopeOptions = (clientRows ?? []).map(r => ({
+    slug: r.client_slug,
+    label: r.client_display_name || r.client_slug,
+  }));
+
+  const tenantLabel = scope
+    ? (scopeOptions.find(o => o.slug === scope)?.label ?? scope)
+    : (isAdmin ? "All clients" : (cu?.client_slug ?? "—"));
 
   const nav = [
     { href: "/dashboard", label: "Overview",  icon: LayoutDashboard, show: true },
@@ -43,9 +62,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <div className="grid h-8 w-8 place-items-center rounded-lg bg-navy text-white font-display text-sm">O</div>
           <div>
             <div className="text-sm font-medium leading-tight">Operandi</div>
-            <div className="text-xs text-slate-500 leading-tight">{tenant}</div>
+            <div className="text-xs text-slate-500 leading-tight">{tenantLabel}</div>
           </div>
         </div>
+        {isAdmin && (
+          <ClientScopeSelector options={scopeOptions} current={scope ?? "all"} />
+        )}
         <nav className="flex-1 space-y-0.5 p-3">
           {nav.map(item => (
             <Link

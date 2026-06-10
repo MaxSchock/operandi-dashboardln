@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardBody, Badge, EmptyState } from "@/components/ui";
 import { DateRangePicker } from "@/components/date-range-picker";
 import { resolveRange } from "@/lib/date-range";
+import { getClientScope } from "@/lib/scope";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -40,7 +41,9 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
   const stage = params.stage ?? "all";
   const q = (params.q ?? "").trim();
   const source = params.source ?? "all";
-  const client = params.client ?? "all";
+  const scope = await getClientScope();
+  // URL param wins over global scope so admins can drill in from a list view.
+  const client = params.client ?? (scope ?? "all");
   const range = resolveRange(params, "30d");
 
   const sb = await createClient();

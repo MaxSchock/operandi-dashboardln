@@ -8,6 +8,7 @@ import { FunnelChart } from "@/components/funnel-chart";
 import { ActivitySpark } from "@/components/activity-spark";
 import { DateRangePicker } from "@/components/date-range-picker";
 import { resolveRange, dayBuckets } from "@/lib/date-range";
+import { getClientScope } from "@/lib/scope";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -17,27 +18,42 @@ type EventRow = { occurred_at: string };
 async function fetchData(params: { range?: string; since?: string; until?: string }) {
   const range = resolveRange(params, "14d");
   const sb = await createClient();
+  const scope = await getClientScope();
+
+  const stateQ = sb.from("lead_state").select("current_stage").limit(10000);
+  if (scope) stateQ.eq("client_slug", scope);
+
+  const evCurrQ = sb.from("lead_events")
+    .select("occurred_at, event_type")
+    .gte("occurred_at", range.sinceIso ?? "1970-01-01")
+    .lte("occurred_at", range.untilIso)
+    .limit(20000);
+  if (scope) evCurrQ.eq("client_slug", scope);
+
+  const evPrev = range.prevSince
+    ? (() => {
+        const q = sb.from("lead_events")
+          .select("occurred_at")
+          .gte("occurred_at", range.prevSince!.toISOString())
+          .lte("occurred_at", range.prevUntil!.toISOString())
+          .limit(20000);
+        if (scope) q.eq("client_slug", scope);
+        return q;
+      })()
+    : Promise.resolve({ data: [] as EventRow[] });
+
+  const narratQ = sb.from("weekly_narratives").select("body_md, week_starting, language").order("week_starting", { ascending: false }).limit(1);
+  if (scope) narratQ.eq("client_slug", scope);
+
+  const recentQ = sb.from("lead_state")
+    .select("lead_id, current_stage, updated_at, leads!inner(id, full_name, headline, company)")
+    .in("current_stage", ["replied", "qualified", "accepted"])
+    .order("updated_at", { ascending: false })
+    .limit(8);
+  if (scope) recentQ.eq("client_slug", scope);
 
   const [states, eventsCurr, eventsPrev, narrativesRes, recentLeadsRes] = await Promise.all([
-    sb.from("lead_state").select("current_stage").limit(10000),
-    sb.from("lead_events")
-      .select("occurred_at, event_type")
-      .gte("occurred_at", range.sinceIso ?? "1970-01-01")
-      .lte("occurred_at", range.untilIso)
-      .limit(20000),
-    range.prevSince
-      ? sb.from("lead_events")
-          .select("occurred_at")
-          .gte("occurred_at", range.prevSince.toISOString())
-          .lte("occurred_at", range.prevUntil!.toISOString())
-          .limit(20000)
-      : Promise.resolve({ data: [] as EventRow[] }),
-    sb.from("weekly_narratives").select("body_md, week_starting, language").order("week_starting", { ascending: false }).limit(1),
-    sb.from("lead_state")
-      .select("lead_id, current_stage, updated_at, leads!inner(id, full_name, headline, company)")
-      .in("current_stage", ["replied", "qualified", "accepted"])
-      .order("updated_at", { ascending: false })
-      .limit(8),
+    stateQ, evCurrQ, evPrev, narratQ, recentQ,
   ]);
 
   const stateRows = states.data ?? [];
