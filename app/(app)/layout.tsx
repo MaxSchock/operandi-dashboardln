@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { LayoutDashboard, Users, Inbox, Sparkles, FileText, Activity, Settings, LogOut, Shield } from "lucide-react";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createPublicClient } from "@/lib/supabase/server";
 import { SignOutButton } from "@/components/sign-out-button";
 import { ClientScopeSelector } from "@/components/client-scope-selector";
 import { getClientScope } from "@/lib/scope";
@@ -29,9 +29,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const scope = await getClientScope();
 
   // Admins can switch between any v2 client; non-admins are pinned to their
-  // own slug (RLS will reject anything else anyway).
+  // own slug (RLS will reject anything else anyway). clients_master lives in
+  // the public schema, so use a public-schema client here.
+  const sbPublic = await createPublicClient();
   const { data: clientRows } = isAdmin
-    ? await sb.from("clients_master")
+    ? await sbPublic.from("clients_master")
         .select("client_slug, client_display_name")
         .eq("has_outreach_product", true)
         .order("client_slug")

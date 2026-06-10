@@ -34,6 +34,30 @@ export async function createClient() {
 }
 
 /**
+ * Auth-aware client bound to the `public` schema. Use when reading tables
+ * that live outside `outreach` (clients_master, auth.users joins via views,
+ * etc.). RLS still applies — this just changes which schema PostgREST
+ * resolves unqualified table names against.
+ */
+export async function createPublicClient() {
+  const cookieStore = await cookies();
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() { return cookieStore.getAll(); },
+        setAll(items: CookieToSet[]) {
+          try { items.forEach(({ name, value, options }) => cookieStore.set(name, value, options)); }
+          catch {}
+        },
+      },
+      db: { schema: "public" },
+    },
+  );
+}
+
+/**
  * Service-role client. ONLY use in app/api routes after asserting
  * `current_user_is_admin`. Never expose to client components.
  */
