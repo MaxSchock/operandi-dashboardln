@@ -4,6 +4,7 @@ import { LayoutDashboard, Users, Inbox, Sparkles, FileText, Activity, Settings, 
 import { createClient, createPublicClient } from "@/lib/supabase/server";
 import { SignOutButton } from "@/components/sign-out-button";
 import { ClientScopeSelector } from "@/components/client-scope-selector";
+import { AutoRefresh } from "@/components/auto-refresh";
 import { getClientScope } from "@/lib/scope";
 
 export const dynamic = "force-dynamic";
@@ -91,6 +92,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       </aside>
 
       <main className="flex-1 overflow-x-hidden">
+        <AutoRefresh intervalMs={30000} />
         <div className="mx-auto max-w-7xl p-6 md:p-8">{children}</div>
       </main>
     </div>
