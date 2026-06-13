@@ -20,8 +20,14 @@ async function fetchData(params: { range?: string; since?: string; until?: strin
   const sb = await createClient();
   const scope = await getClientScope();
 
-  const stateQ = sb.from("lead_state").select("current_stage").limit(10000);
+  const stateQ = sb.from("lead_state").select("lead_id, current_stage").limit(10000);
   if (scope) stateQ.eq("client_slug", scope);
+
+  // Full event history (no date filter) to build a CUMULATIVE funnel: a lead
+  // that has advanced to `messaged` still counts towards accepted/invited, and
+  // a lead that later expired keeps the furthest stage it reached.
+  const funnelEvQ = sb.from("lead_events").select("lead_id, event_type").limit(50000);
+  if (scope) funnelEvQ.eq("client_slug", scope);
 
   const evCurrQ = sb.from("lead_events")
     .select("occurred_at, event_type")
@@ -52,13 +58,44 @@ async function fetchData(params: { range?: string; since?: string; until?: strin
     .limit(8);
   if (scope) recentQ.eq("client_slug", scope);
 
-  const [states, eventsCurr, eventsPrev, narrativesRes, recentLeadsRes] = await Promise.all([
-    stateQ, evCurrQ, evPrev, narratQ, recentQ,
+  const [states, funnelEv, eventsCurr, eventsPrev, narrativesRes, recentLeadsRes] = await Promise.all([
+    stateQ, funnelEvQ, evCurrQ, evPrev, narratQ, recentQ,
   ]);
 
-  const stateRows = states.data ?? [];
+  const stateRows = (states.data ?? []) as Array<{ lead_id: number; current_stage: string }>;
   const counts: Record<string, number> = {};
   for (const r of stateRows) counts[r.current_stage] = (counts[r.current_stage] ?? 0) + 1;
+
+  // ---- Cumulative funnel: furthest stage each lead ever reached -------------
+  const FUNNEL_RANK: Record<string, number> = {
+    pre_contact: 0, engaged_post: 1, invited: 2, accepted: 3,
+    messaged: 4, replied: 5, qualified: 6,
+  };
+  const EVENT_RANK: Record<string, number> = {
+    post_commented: 1, invite_sent: 2, invite_accepted: 3,
+    message_out: 4, message_in: 5, email_replied: 5,
+  };
+  const FUNNEL_ORDER = ["pre_contact", "engaged_post", "invited", "accepted", "messaged", "replied", "qualified"];
+
+  const maxRank = new Map<number, number>();
+  for (const r of stateRows) {
+    // current_stage covers terminal/forward stages without events (e.g. qualified);
+    // terminal off-funnel stages (expired/opted_out/paused) fall back to events.
+    const cr = FUNNEL_RANK[r.current_stage] ?? 0;
+    maxRank.set(r.lead_id, Math.max(maxRank.get(r.lead_id) ?? 0, cr));
+  }
+  for (const e of (funnelEv.data ?? []) as Array<{ lead_id: number; event_type: string }>) {
+    const er = EVENT_RANK[e.event_type];
+    if (er === undefined) continue;
+    maxRank.set(e.lead_id, Math.max(maxRank.get(e.lead_id) ?? 0, er));
+  }
+  const reached = (rank: number) => {
+    let n = 0;
+    for (const v of maxRank.values()) if (v >= rank) n++;
+    return n;
+  };
+  const funnel = FUNNEL_ORDER.map((stage, rank) => ({ stage, count: reached(rank) }));
+  const reachedByStage: Record<string, number> = Object.fromEntries(funnel.map(f => [f.stage, f.count]));
 
   const currEvents = (eventsCurr.data ?? []) as EventRow[];
   const prevEvents = (eventsPrev.data ?? []) as EventRow[];
@@ -95,12 +132,14 @@ async function fetchData(params: { range?: string; since?: string; until?: strin
 
   return {
     range,
-    counts,
+    funnel,
     series,
     totalLeads: stateRows.length,
-    accepted: counts["accepted"] ?? 0,
-    replied: counts["replied"] ?? 0,
-    qualified: counts["qualified"] ?? 0,
+    // KPIs are cumulative too: "Accepted" = leads that ever accepted, not just
+    // those still parked in the accepted stage.
+    accepted: reachedByStage["accepted"] ?? 0,
+    replied: reachedByStage["replied"] ?? 0,
+    qualified: reachedByStage["qualified"] ?? 0,
     deltaEvents,
     hot,
     narrative: (narrativesRes.data ?? [])[0],
@@ -109,8 +148,8 @@ async function fetchData(params: { range?: string; since?: string; until?: strin
 
 export default async function OverviewPage({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
   const params = await searchParams;
-  const { range, counts, series, totalLeads, accepted, replied, qualified, deltaEvents, hot, narrative } = await fetchData(params);
-  const funnelData = Object.entries(counts).map(([current_stage, count]) => ({ current_stage, count }));
+  const { range, funnel, series, totalLeads, accepted, replied, qualified, deltaEvents, hot, narrative } = await fetchData(params);
+  const funnelData = funnel;
 
   return (
     <div className="space-y-6">

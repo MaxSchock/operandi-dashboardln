@@ -10,9 +10,12 @@ const STAGES = [
   { key: "qualified",    label: "Qualified",    color: "#059669" },
 ];
 
-export function FunnelChart({ data }: { data: { current_stage: string; count: number }[] }) {
+// `data` carries CUMULATIVE counts: how many leads ever reached each stage
+// (a lead in `messaged` also counts towards accepted/invited). This keeps the
+// funnel monotonic so conversion is always <=100%.
+export function FunnelChart({ data }: { data: { stage: string; count: number }[] }) {
   const counts: Record<string, number> = {};
-  for (const d of data) counts[d.current_stage] = d.count;
+  for (const d of data) counts[d.stage] = d.count;
   const max = Math.max(1, ...STAGES.map(s => counts[s.key] ?? 0));
 
   return (
@@ -20,7 +23,14 @@ export function FunnelChart({ data }: { data: { current_stage: string; count: nu
       {STAGES.map((s, i) => {
         const v = counts[s.key] ?? 0;
         const pct = (v / max) * 100;
-        const previous = i > 0 ? (counts[STAGES[i - 1].key] ?? 0) : null;
+        // Conversion vs the nearest upstream stage that actually has leads, so
+        // an optional/skipped stage (e.g. Engaged, unused in cold-invite flows)
+        // doesn't produce a misleading 0% or divide-by-zero.
+        let previous: number | null = null;
+        for (let j = i - 1; j >= 0; j--) {
+          const pv = counts[STAGES[j].key] ?? 0;
+          if (pv > 0) { previous = pv; break; }
+        }
         const conv = previous && previous > 0 ? Math.round((v / previous) * 100) : null;
         return (
           <div key={s.key} className="grid grid-cols-[7rem_1fr_4rem] items-center gap-3">
