@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { LayoutDashboard, Users, Inbox, Sparkles, FileText, Activity, Settings, LogOut, Shield } from "lucide-react";
+import { LayoutDashboard, Users, Inbox, Sparkles, FileText, Activity, Settings, LogOut, Shield, MessageSquare, CalendarDays } from "lucide-react";
 import { createClient, createPublicClient } from "@/lib/supabase/server";
 import { SignOutButton } from "@/components/sign-out-button";
 import { ClientScopeSelector } from "@/components/client-scope-selector";
@@ -51,6 +51,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const nav = [
     { href: "/dashboard", label: "Overview",  icon: LayoutDashboard, show: true },
     { href: "/leads",     label: "Leads",     icon: Users,           show: true },
+    { href: "/engagement", label: "Warm DMs", icon: MessageSquare,   show: true },
+    { href: "/content",   label: "Content",   icon: CalendarDays,    show: true },
     { href: "/activity",  label: "Activity",  icon: Activity,        show: true },
     { href: "/templates", label: "Templates", icon: FileText,        show: true },
     { href: "/admin",     label: "Admin",     icon: Shield,          show: isAdmin },
