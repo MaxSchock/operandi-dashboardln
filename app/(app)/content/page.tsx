@@ -13,8 +13,10 @@ type Engagement = {
 } | null;
 
 type CalendarRow = {
+  content_slug: string;
+  content_name: string | null;
+  outreach_slug: string | null;
   post_id: string;
-  client_slug: string;
   post_type: string | null;
   text_content: string | null;
   text_status: string | null;
@@ -31,7 +33,9 @@ type CalendarRow = {
 };
 
 type AnalyticsRow = {
-  client_slug: string;
+  content_slug: string;
+  content_name: string | null;
+  outreach_slug: string | null;
   avg_icp_pct: string | null;
   topic_icp_fit: Record<string, number> | null;
   topic_weights: Record<string, number> | null;
@@ -41,12 +45,14 @@ type AnalyticsRow = {
   hard_negatives: string[] | null;
   exemplar_posts: { id: string; text: string; topic: string; score: number }[] | null;
   computed_at: string | null;
+  engagement_detect_enabled: boolean | null;
 };
 
 const STATUS_TONE: Record<string, "slate" | "green" | "amber" | "red" | "electric"> = {
   Published: "green", Approved: "electric", New: "slate",
   "Under review": "amber", "In progress": "amber", Suspended: "red",
 };
+const POSTS_PER_CLIENT = 12;
 
 function pct(v: string | number | null | undefined): string {
   if (v === null || v === undefined) return "—";
@@ -58,49 +64,84 @@ export default async function ContentPage() {
   const sb = await createClient();
   const scope = await getClientScope();
 
-  let calQ = sb.from("content_calendar").select("*").order("scheduled_for", { ascending: false }).limit(200);
-  let anQ = sb.from("content_analytics").select("*").order("client_slug");
-  if (scope) { calQ = calQ.eq("client_slug", scope); anQ = anQ.eq("client_slug", scope); }
-  const [{ data: calData }, { data: anData }] = await Promise.all([calQ, anQ]);
-  const rows = (calData ?? []) as CalendarRow[];
-  const analytics = (anData ?? []) as AnalyticsRow[];
+  const [{ data: calData }, { data: anData }] = await Promise.all([
+    sb.from("content_calendar").select("*").order("scheduled_for", { ascending: false }).limit(500),
+    sb.from("content_analytics").select("*"),
+  ]);
+  let posts = (calData ?? []) as CalendarRow[];
+  let analytics = (anData ?? []) as AnalyticsRow[];
+
+  // When a specific client is scoped, keep only content mapped to that outreach client.
+  if (scope) {
+    posts = posts.filter(p => p.outreach_slug === scope);
+    analytics = analytics.filter(a => a.outreach_slug === scope);
+  }
+
+  const postsByClient = new Map<string, CalendarRow[]>();
+  for (const p of posts) {
+    const arr = postsByClient.get(p.content_slug) ?? [];
+    arr.push(p);
+    postsByClient.set(p.content_slug, arr);
+  }
+
+  // One section per content client (union of analytics rows + any client that only has posts).
+  const clientSlugs = new Set<string>([...analytics.map(a => a.content_slug), ...postsByClient.keys()]);
+  const sections = [...clientSlugs].map(slug => {
+    const a = analytics.find(x => x.content_slug === slug);
+    const cp = postsByClient.get(slug) ?? [];
+    return { slug, name: a?.content_name ?? cp[0]?.content_name ?? slug, analytics: a, posts: cp };
+  }).sort((x, y) => (y.posts.length - x.posts.length) || x.name.localeCompare(y.name));
 
   return (
     <div className="space-y-6">
       <header>
         <h1 className="font-display text-2xl text-navy">Content</h1>
         <p className="text-sm text-slate-500">
-          Posts, their reach and how well they pull the ICP, plus what the engine has learned.
-          Each post is themed on a pain point; engagement on it feeds the Warm DMs queue.
+          Per client: what the engine learned (ICP-fit, rules), and every post with its reach and
+          how well it pulled the ICP. Engagement on a post feeds the Warm DMs queue.
         </p>
       </header>
 
-      {analytics.map(a => <AnalyticsPanel key={a.client_slug} a={a} />)}
-
-      <Card>
-        <CardHeader title="Calendar & post metrics" hint={`${rows.length} post${rows.length === 1 ? "" : "s"}`} />
-        <CardBody className="space-y-4">
-          {rows.length === 0 ? (
-            <EmptyState title="No content yet" hint="Posts prepared by the content engine will show here." />
-          ) : (
-            rows.map(r => <PostCard key={r.post_id} r={r} />)
-          )}
-        </CardBody>
-      </Card>
+      {sections.length === 0 ? (
+        <Card><CardBody><EmptyState title="No content clients in scope" /></CardBody></Card>
+      ) : (
+        sections.map(s => (
+          <div key={s.slug} className="space-y-3">
+            <AnalyticsPanel name={s.name} a={s.analytics} />
+            <Card>
+              <CardHeader title={`Posts · ${s.name}`} hint={`${s.posts.length} post${s.posts.length === 1 ? "" : "s"}`} />
+              <CardBody className="space-y-4">
+                {s.posts.length === 0 ? (
+                  <EmptyState title="No posts yet" />
+                ) : (
+                  <>
+                    {s.posts.slice(0, POSTS_PER_CLIENT).map(r => <PostCard key={r.post_id} r={r} />)}
+                    {s.posts.length > POSTS_PER_CLIENT && (
+                      <div className="text-center text-xs text-slate-400">
+                        + {s.posts.length - POSTS_PER_CLIENT} more
+                      </div>
+                    )}
+                  </>
+                )}
+              </CardBody>
+            </Card>
+          </div>
+        ))
+      )}
     </div>
   );
 }
 
-function AnalyticsPanel({ a }: { a: AnalyticsRow }) {
-  const topicFit = Object.entries(a.topic_icp_fit ?? {}).sort((x, y) => y[1] - x[1]);
-  const hasData = a.avg_icp_pct !== null || topicFit.length > 0 ||
-    (a.distilled_rules?.length ?? 0) > 0 || (a.hard_negatives?.length ?? 0) > 0;
+function AnalyticsPanel({ name, a }: { name: string; a?: AnalyticsRow }) {
+  const topicFit = Object.entries(a?.topic_icp_fit ?? {}).sort((x, y) => y[1] - x[1]);
+  const hasData = !!a && (a.avg_icp_pct !== null || topicFit.length > 0 ||
+    (a.distilled_rules?.length ?? 0) > 0 || (a.hard_negatives?.length ?? 0) > 0);
 
   return (
     <Card>
       <CardHeader
-        title={`Analytics · ${a.client_slug}`}
-        hint={a.computed_at ? `learned ${new Date(a.computed_at).toLocaleDateString()}` : "no learning run yet"}
+        title={`Analytics · ${name}`}
+        hint={a?.computed_at ? `learned ${new Date(a.computed_at).toLocaleDateString()}` : "no learning run yet"}
       />
       <CardBody className="space-y-5">
         {!hasData ? (
@@ -109,16 +150,16 @@ function AnalyticsPanel({ a }: { a: AnalyticsRow }) {
         ) : (
           <>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <Kpi label="Avg ICP-fit" value={pct(a.avg_icp_pct)} accent />
-              <Kpi label="First-pass rate (30d)" value={pct(a.first_pass_rate_30d)} />
-              <Kpi label="Cadence" value="see brief" />
-              <Kpi label="Regression" value={a.regression_alert ? "⚠ yes" : "ok"} bad={!!a.regression_alert} />
+              <Kpi label="Avg ICP-fit" value={pct(a!.avg_icp_pct)} accent />
+              <Kpi label="First-pass rate (30d)" value={pct(a!.first_pass_rate_30d)} />
+              <Kpi label="Topics tracked" value={String(Object.keys(a!.topic_weights ?? {}).length)} />
+              <Kpi label="Regression" value={a!.regression_alert ? "⚠ yes" : "ok"} bad={!!a!.regression_alert} />
             </div>
 
-            {a.regression_alert && (
+            {a!.regression_alert && (
               <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
-                Engagement regression: recent avg {a.regression_alert.ma_short} vs baseline {a.regression_alert.ma_long}
-                {" "}(ratio {a.regression_alert.ratio}). Since {new Date(a.regression_alert.since).toLocaleDateString()}.
+                Engagement regression: recent avg {a!.regression_alert.ma_short} vs baseline {a!.regression_alert.ma_long}
+                {" "}(ratio {a!.regression_alert.ratio}). Since {new Date(a!.regression_alert.since).toLocaleDateString()}.
               </div>
             )}
 
@@ -140,20 +181,20 @@ function AnalyticsPanel({ a }: { a: AnalyticsRow }) {
               </div>
             )}
 
-            {(a.distilled_rules?.length ?? 0) > 0 && (
+            {(a!.distilled_rules?.length ?? 0) > 0 && (
               <div>
                 <div className="mb-1 text-[11px] uppercase tracking-wide text-slate-400">Learned style rules</div>
                 <ul className="space-y-1 text-xs text-slate-600">
-                  {a.distilled_rules!.map((r, i) => <li key={i}>• {r}</li>)}
+                  {a!.distilled_rules!.map((r, i) => <li key={i}>• {r}</li>)}
                 </ul>
               </div>
             )}
 
-            {(a.hard_negatives?.length ?? 0) > 0 && (
+            {(a!.hard_negatives?.length ?? 0) > 0 && (
               <div>
                 <div className="mb-1 text-[11px] uppercase tracking-wide text-slate-400">Hard negatives (never do)</div>
                 <ul className="space-y-1 text-xs text-red-700">
-                  {a.hard_negatives!.map((r, i) => <li key={i}>• {r}</li>)}
+                  {a!.hard_negatives!.map((r, i) => <li key={i}>• {r}</li>)}
                 </ul>
               </div>
             )}
