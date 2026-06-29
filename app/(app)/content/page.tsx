@@ -17,10 +17,12 @@ type CalendarRow = {
   content_name: string | null;
   outreach_slug: string | null;
   post_id: string;
+  sheet_row: number | null;
   post_type: string | null;
   text_content: string | null;
   text_status: string | null;
   image_status: string | null;
+  text_notes?: string | null;
   topic: string | null;
   pain_id: string | null;
   pain_label: string | null;
@@ -45,7 +47,6 @@ type AnalyticsRow = {
   hard_negatives: string[] | null;
   exemplar_posts: { id: string; text: string; topic: string; score: number }[] | null;
   computed_at: string | null;
-  engagement_detect_enabled: boolean | null;
 };
 
 const STATUS_TONE: Record<string, "slate" | "green" | "amber" | "red" | "electric"> = {
@@ -63,15 +64,17 @@ function pct(v: string | number | null | undefined): string {
 export default async function ContentPage() {
   const sb = await createClient();
   const scope = await getClientScope();
+  const { data: { user } } = await sb.auth.getUser();
 
-  const [{ data: calData }, { data: anData }] = await Promise.all([
+  const [{ data: calData }, { data: anData }, { data: userInfo }] = await Promise.all([
     sb.from("content_calendar").select("*").order("scheduled_for", { ascending: false }).limit(500),
     sb.from("content_analytics").select("*"),
+    user ? sb.from("client_users").select("role").eq("user_id", user.id).maybeSingle() : Promise.resolve({ data: null }),
   ]);
   let posts = (calData ?? []) as CalendarRow[];
   let analytics = (anData ?? []) as AnalyticsRow[];
+  const isAdmin = (userInfo as { role?: string } | null)?.role === "operandi_admin";
 
-  // When a specific client is scoped, keep only content mapped to that outreach client.
   if (scope) {
     posts = posts.filter(p => p.outreach_slug === scope);
     analytics = analytics.filter(a => a.outreach_slug === scope);
@@ -84,7 +87,6 @@ export default async function ContentPage() {
     postsByClient.set(p.content_slug, arr);
   }
 
-  // One section per content client (union of analytics rows + any client that only has posts).
   const clientSlugs = new Set<string>([...analytics.map(a => a.content_slug), ...postsByClient.keys()]);
   const sections = [...clientSlugs].map(slug => {
     const a = analytics.find(x => x.content_slug === slug);
@@ -97,8 +99,8 @@ export default async function ContentPage() {
       <header>
         <h1 className="font-display text-2xl text-navy">Content</h1>
         <p className="text-sm text-slate-500">
-          Per client: what the engine learned (ICP-fit, rules), and every post with its reach and
-          how well it pulled the ICP. Engagement on a post feeds the Warm DMs queue.
+          Per client: what the engine learned, and every post (full text + image) with its reach and
+          ICP-fit. Admins can approve, edit, request a revision, or suspend each post.
         </p>
       </header>
 
@@ -115,11 +117,9 @@ export default async function ContentPage() {
                   <EmptyState title="No posts yet" />
                 ) : (
                   <>
-                    {s.posts.slice(0, POSTS_PER_CLIENT).map(r => <PostCard key={r.post_id} r={r} />)}
+                    {s.posts.slice(0, POSTS_PER_CLIENT).map(r => <PostCard key={r.post_id} r={r} isAdmin={isAdmin} />)}
                     {s.posts.length > POSTS_PER_CLIENT && (
-                      <div className="text-center text-xs text-slate-400">
-                        + {s.posts.length - POSTS_PER_CLIENT} more
-                      </div>
+                      <div className="text-center text-xs text-slate-400">+ {s.posts.length - POSTS_PER_CLIENT} more</div>
                     )}
                   </>
                 )}
@@ -155,14 +155,12 @@ function AnalyticsPanel({ name, a }: { name: string; a?: AnalyticsRow }) {
               <Kpi label="Topics tracked" value={String(Object.keys(a!.topic_weights ?? {}).length)} />
               <Kpi label="Regression" value={a!.regression_alert ? "⚠ yes" : "ok"} bad={!!a!.regression_alert} />
             </div>
-
             {a!.regression_alert && (
               <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
                 Engagement regression: recent avg {a!.regression_alert.ma_short} vs baseline {a!.regression_alert.ma_long}
                 {" "}(ratio {a!.regression_alert.ratio}). Since {new Date(a!.regression_alert.since).toLocaleDateString()}.
               </div>
             )}
-
             {topicFit.length > 0 && (
               <div>
                 <div className="mb-2 text-[11px] uppercase tracking-wide text-slate-400">ICP-fit by topic</div>
@@ -180,7 +178,6 @@ function AnalyticsPanel({ name, a }: { name: string; a?: AnalyticsRow }) {
                 </div>
               </div>
             )}
-
             {(a!.distilled_rules?.length ?? 0) > 0 && (
               <div>
                 <div className="mb-1 text-[11px] uppercase tracking-wide text-slate-400">Learned style rules</div>
@@ -189,7 +186,6 @@ function AnalyticsPanel({ name, a }: { name: string; a?: AnalyticsRow }) {
                 </ul>
               </div>
             )}
-
             {(a!.hard_negatives?.length ?? 0) > 0 && (
               <div>
                 <div className="mb-1 text-[11px] uppercase tracking-wide text-slate-400">Hard negatives (never do)</div>
@@ -214,57 +210,97 @@ function Kpi({ label, value, accent, bad }: { label: string; value: string; acce
   );
 }
 
-function PostCard({ r }: { r: CalendarRow }) {
+function PostCard({ r, isAdmin }: { r: CalendarRow; isAdmin: boolean }) {
   const status = r.published_at ? "Published" : (r.text_status ?? "New");
   const img = r.image_url_imgbb || r.image_url_source;
   const when = r.published_at || r.scheduled_for;
   const e = r.engagement;
   const aud = e?.audience ?? null;
+  const canManage = isAdmin && status !== "Published" && r.sheet_row != null;
+  const act = `/api/admin/content-post/${r.content_slug}/${r.sheet_row}`;
+
   return (
-    <div className="flex flex-col gap-4 rounded-lg border p-4 sm:flex-row">
-      {img ? (
-        <a href={img} target="_blank" rel="noreferrer" className="shrink-0">
-          <img src={img} alt="post" className="h-32 w-32 rounded-md border object-cover" />
-        </a>
-      ) : (
-        <div className="grid h-32 w-32 shrink-0 place-items-center rounded-md border border-dashed bg-slate-50 text-[10px] text-slate-400">
-          no image
+    <div className="rounded-lg border p-4">
+      <div className="flex flex-col gap-4 sm:flex-row">
+        {img ? (
+          <a href={img} target="_blank" rel="noreferrer" className="shrink-0">
+            <img src={img} alt="post" className="h-40 w-40 rounded-md border object-cover" />
+          </a>
+        ) : (
+          <div className="grid h-40 w-40 shrink-0 place-items-center rounded-md border border-dashed bg-slate-50 text-[10px] text-slate-400">
+            no image
+          </div>
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+            <Badge tone={STATUS_TONE[status] ?? "slate"}>{status}</Badge>
+            {r.pain_label && <Badge tone="electric">{r.pain_label.slice(0, 40)}</Badge>}
+            {aud?.icp_pct !== undefined && aud?.total ? (
+              <Badge tone="green">{pct(aud.icp_pct)} ICP ({aud.icp}/{aud.total})</Badge>
+            ) : null}
+            <span className="ml-auto text-[10px] uppercase tracking-wide text-slate-400">
+              {when ? new Date(when).toLocaleString() : "—"}
+            </span>
+          </div>
+          {e && (e.score || e.reactions || e.impressions) ? (
+            <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-600">
+              <span className="font-medium text-navy">score {e.score ?? 0}</span>
+              <span>👍 {e.reactions ?? 0}</span>
+              <span>💬 {e.comments ?? 0}</span>
+              <span>🔁 {e.reposts ?? 0}</span>
+              {typeof e.impressions === "number" && <span>📊 {e.impressions.toLocaleString()} impr.</span>}
+            </div>
+          ) : status === "Published" ? (
+            <div className="mt-2 text-xs text-slate-400">metrics pending nightly sync</div>
+          ) : null}
+          {/* Full post text, readable (scrolls if very long) */}
+          <pre className="mt-3 max-h-96 overflow-y-auto whitespace-pre-wrap rounded-md bg-slate-50 p-3 text-xs leading-5 text-slate-700">{r.text_content ?? "(no text)"}</pre>
+          {r.linkedin_url && (
+            <a href={r.linkedin_url} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs text-electric hover:underline">
+              View on LinkedIn ↗
+            </a>
+          )}
+        </div>
+      </div>
+
+      {canManage && (
+        <div className="mt-3 flex flex-wrap items-start gap-2 border-t pt-3">
+          <form action={`${act}?action=approve`} method="post">
+            <button className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:opacity-90">Approve</button>
+          </form>
+
+          <details className="group">
+            <summary className="cursor-pointer list-none rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200">Edit text</summary>
+            <form action={`${act}?action=edit-text`} method="post" className="mt-2 w-80 max-w-full">
+              <textarea name="text" defaultValue={r.text_content ?? ""} rows={6}
+                className="w-full rounded-md border bg-white p-2 text-xs leading-5" />
+              <button className="mt-1 rounded-md bg-electric px-3 py-1 text-xs font-medium text-white hover:opacity-90">Save text</button>
+            </form>
+          </details>
+
+          <details className="group">
+            <summary className="cursor-pointer list-none rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200">Revise text</summary>
+            <form action={`${act}?action=revise-text`} method="post" className="mt-2 w-80 max-w-full">
+              <textarea name="notes" rows={3} placeholder="What to change about the text (the engine regenerates it)"
+                className="w-full rounded-md border bg-white p-2 text-xs leading-5" />
+              <button className="mt-1 rounded-md bg-amber-500 px-3 py-1 text-xs font-medium text-white hover:opacity-90">Request text revision</button>
+            </form>
+          </details>
+
+          <details className="group">
+            <summary className="cursor-pointer list-none rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200">Revise image</summary>
+            <form action={`${act}?action=revise-image`} method="post" className="mt-2 w-80 max-w-full">
+              <textarea name="notes" rows={3} placeholder="What to change about the image (the engine regenerates it)"
+                className="w-full rounded-md border bg-white p-2 text-xs leading-5" />
+              <button className="mt-1 rounded-md bg-amber-500 px-3 py-1 text-xs font-medium text-white hover:opacity-90">Request image revision</button>
+            </form>
+          </details>
+
+          <form action={`${act}?action=suspend`} method="post" className="ml-auto">
+            <button className="rounded-md bg-red-100 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-200">Suspend</button>
+          </form>
         </div>
       )}
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-          <Badge tone={STATUS_TONE[status] ?? "slate"}>{status}</Badge>
-          {r.pain_label && <Badge tone="electric">{r.pain_label.slice(0, 40)}</Badge>}
-          {aud?.icp_pct !== undefined && aud?.total ? (
-            <Badge tone="green">{pct(aud.icp_pct)} ICP ({aud.icp}/{aud.total})</Badge>
-          ) : null}
-          <span className="ml-auto text-[10px] uppercase tracking-wide text-slate-400">
-            {when ? new Date(when).toLocaleString() : "—"}
-          </span>
-        </div>
-
-        {e && (e.score || e.reactions || e.impressions) ? (
-          <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-600">
-            <span className="font-medium text-navy">score {e.score ?? 0}</span>
-            <span>👍 {e.reactions ?? 0}</span>
-            <span>💬 {e.comments ?? 0}</span>
-            <span>🔁 {e.reposts ?? 0}</span>
-            {typeof e.impressions === "number" && <span>📊 {e.impressions.toLocaleString()} impr.</span>}
-          </div>
-        ) : status === "Published" ? (
-          <div className="mt-2 text-xs text-slate-400">metrics pending nightly sync</div>
-        ) : null}
-
-        <p className="mt-2 line-clamp-3 whitespace-pre-wrap text-xs leading-5 text-slate-700">
-          {r.text_content ?? "(no text)"}
-        </p>
-        {r.linkedin_url && (
-          <a href={r.linkedin_url} target="_blank" rel="noreferrer"
-            className="mt-2 inline-block text-xs text-electric hover:underline">
-            View on LinkedIn ↗
-          </a>
-        )}
-      </div>
     </div>
   );
 }
