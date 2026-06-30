@@ -234,6 +234,9 @@ function PostCard({ r, isAdmin }: { r: CalendarRow; isAdmin: boolean }) {
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
             <Badge tone={STATUS_TONE[status] ?? "slate"}>{status}</Badge>
+            {!r.published_at && r.scheduled_for && new Date(r.scheduled_for) < new Date() && (
+              <Badge tone="amber">⚠ overdue ({new Date(r.scheduled_for).toLocaleDateString()}) — publishes immediately if approved</Badge>
+            )}
             {r.pain_label && <Badge tone="electric">{r.pain_label.slice(0, 40)}</Badge>}
             {aud?.icp_pct !== undefined && aud?.total ? (
               <Badge tone="green">{pct(aud.icp_pct)} ICP ({aud.icp}/{aud.total})</Badge>
