@@ -218,6 +218,7 @@ function PostCard({ r, isAdmin }: { r: CalendarRow; isAdmin: boolean }) {
   const aud = e?.audience ?? null;
   const canManage = isAdmin && status !== "Published" && r.sheet_row != null;
   const act = `/api/admin/content-post/${r.content_slug}/${r.sheet_row}`;
+  const schedDate = r.scheduled_for ? new Date(r.scheduled_for).toISOString().slice(0, 10) : "";
 
   return (
     <div className="rounded-lg border p-4">
@@ -270,6 +271,12 @@ function PostCard({ r, isAdmin }: { r: CalendarRow; isAdmin: boolean }) {
         <div className="mt-3 flex flex-wrap items-start gap-2 border-t pt-3">
           <form action={`${act}?action=approve`} method="post">
             <button className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:opacity-90">Approve</button>
+          </form>
+
+          <form action={`${act}?action=set-date`} method="post" className="flex items-center gap-1.5">
+            <input type="date" name="date" defaultValue={schedDate}
+              className="rounded-md border bg-white px-2 py-1 text-xs text-slate-700" />
+            <button className="rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200">Save date</button>
           </form>
 
           <details className="group">

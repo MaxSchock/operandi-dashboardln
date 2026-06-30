@@ -8,7 +8,7 @@ import { createClient } from "@/lib/supabase/server";
  * Operandi-admin only. Delegates to the strategist proxy, which forwards to the internal
  * content-engine daemon (writes the Google Sheet + content_engine_posts).
  */
-const ACTIONS = new Set(["approve", "suspend", "revise-text", "revise-image", "edit-text"]);
+const ACTIONS = new Set(["approve", "suspend", "revise-text", "revise-image", "edit-text", "set-date"]);
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: string; row: string }> }) {
   const { slug, row } = await ctx.params;
@@ -30,6 +30,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: stri
     const fd = await req.formData();
     if (action === "edit-text") payload = { text: String(fd.get("text") ?? "") };
     else if (action === "revise-text" || action === "revise-image") payload = { notes: String(fd.get("notes") ?? "") };
+    else if (action === "set-date") payload = { date: String(fd.get("date") ?? ""), time: String(fd.get("time") ?? "") };
   }
 
   const base = process.env.STRATEGIST_BASE_URL;
