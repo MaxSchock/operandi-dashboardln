@@ -61,6 +61,56 @@ function pct(v: string | number | null | undefined): string {
   return Number.isNaN(n) ? "—" : `${Math.round(n * 100)}%`;
 }
 
+function GeneratePanel({ slug, name }: { slug: string; name: string }) {
+  return (
+    <Card>
+      <CardHeader title={`Generate posts · ${name}`} hint="on demand" />
+      <CardBody>
+        <form action={`/api/admin/content-generate/${slug}`} method="post" className="space-y-3">
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-medium text-slate-600">Número de posts</label>
+            <input
+              type="number"
+              name="count"
+              defaultValue={3}
+              min={1}
+              max={10}
+              className="w-16 rounded-md border bg-white px-2 py-1 text-sm text-slate-700"
+            />
+          </div>
+          <fieldset className="space-y-1">
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input type="radio" name="mode" value="auto" defaultChecked /> El agente elige los temas
+            </label>
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input type="radio" name="mode" value="manual" /> Yo propongo los temas
+            </label>
+          </fieldset>
+          <div>
+            <label className="text-xs text-slate-500">
+              Temas (uno por línea, solo si eliges &quot;Yo propongo&quot;)
+            </label>
+            <textarea
+              name="topics"
+              rows={3}
+              placeholder="un tema por línea"
+              className="mt-1 w-full rounded-md border bg-white px-2 py-1 text-sm text-slate-700"
+            />
+          </div>
+          <div className="flex items-center gap-3">
+            <button className="rounded-md bg-electric px-3 py-1.5 text-xs font-medium text-white hover:opacity-90">
+              Generar
+            </button>
+            <span className="text-xs text-slate-400">
+              Los posts aparecen en unos minutos. Refresca la página.
+            </span>
+          </div>
+        </form>
+      </CardBody>
+    </Card>
+  );
+}
+
 export default async function ContentPage() {
   const sb = await createClient();
   const scope = await getClientScope();
@@ -109,6 +159,7 @@ export default async function ContentPage() {
       ) : (
         sections.map(s => (
           <div key={s.slug} className="space-y-3">
+            {isAdmin && <GeneratePanel slug={s.slug} name={s.name} />}
             <AnalyticsPanel name={s.name} a={s.analytics} />
             <Card>
               <CardHeader title={`Posts · ${s.name}`} hint={`${s.posts.length} post${s.posts.length === 1 ? "" : "s"}`} />
