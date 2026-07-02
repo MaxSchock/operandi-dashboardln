@@ -68,7 +68,7 @@ function GeneratePanel({ slug, name }: { slug: string; name: string }) {
       <CardBody>
         <form action={`/api/admin/content-generate/${slug}`} method="post" className="space-y-3">
           <div className="flex items-center gap-2">
-            <label className="text-xs font-medium text-slate-600">Número de posts</label>
+            <label className="text-xs font-medium text-slate-600">Number of posts</label>
             <input
               type="number"
               name="count"
@@ -80,29 +80,29 @@ function GeneratePanel({ slug, name }: { slug: string; name: string }) {
           </div>
           <fieldset className="space-y-1">
             <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input type="radio" name="mode" value="auto" defaultChecked /> El agente elige los temas
+              <input type="radio" name="mode" value="auto" defaultChecked /> Let the agent pick the topics
             </label>
             <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input type="radio" name="mode" value="manual" /> Yo propongo los temas
+              <input type="radio" name="mode" value="manual" /> I&apos;ll provide the topics
             </label>
           </fieldset>
           <div>
             <label className="text-xs text-slate-500">
-              Temas (uno por línea, solo si eliges &quot;Yo propongo&quot;)
+              Topics (one per line, only if you provide them)
             </label>
             <textarea
               name="topics"
               rows={3}
-              placeholder="un tema por línea"
+              placeholder="one topic per line"
               className="mt-1 w-full rounded-md border bg-white px-2 py-1 text-sm text-slate-700"
             />
           </div>
           <div className="flex items-center gap-3">
             <button className="rounded-md bg-electric px-3 py-1.5 text-xs font-medium text-white hover:opacity-90">
-              Generar
+              Generate
             </button>
             <span className="text-xs text-slate-400">
-              Los posts aparecen en unos minutos. Refresca la página.
+              Posts appear in a few minutes. Refresh the page.
             </span>
           </div>
         </form>
