@@ -160,7 +160,7 @@ export default async function ContentPage() {
         sections.map(s => (
           <div key={s.slug} className="space-y-3">
             {isAdmin && <GeneratePanel slug={s.slug} name={s.name} />}
-            <AnalyticsPanel name={s.name} a={s.analytics} />
+            <AnalyticsPanel name={s.name} a={s.analytics} posts={s.posts} />
             <Card>
               <CardHeader title={`Posts · ${s.name}`} hint={`${s.posts.length} post${s.posts.length === 1 ? "" : "s"}`} />
               <CardBody className="space-y-4">
@@ -170,7 +170,14 @@ export default async function ContentPage() {
                   <>
                     {s.posts.slice(0, POSTS_PER_CLIENT).map(r => <PostCard key={r.post_id} r={r} isAdmin={isAdmin} />)}
                     {s.posts.length > POSTS_PER_CLIENT && (
-                      <div className="text-center text-xs text-slate-400">+ {s.posts.length - POSTS_PER_CLIENT} more</div>
+                      <details className="group">
+                        <summary className="cursor-pointer list-none rounded-md border border-dashed py-2 text-center text-xs font-medium text-electric hover:bg-slate-50">
+                          Show {s.posts.length - POSTS_PER_CLIENT} more <span className="group-open:hidden">▾</span><span className="hidden group-open:inline">▴</span>
+                        </summary>
+                        <div className="mt-4 space-y-4">
+                          {s.posts.slice(POSTS_PER_CLIENT).map(r => <PostCard key={r.post_id} r={r} isAdmin={isAdmin} />)}
+                        </div>
+                      </details>
                     )}
                   </>
                 )}
@@ -183,9 +190,30 @@ export default async function ContentPage() {
   );
 }
 
-function AnalyticsPanel({ name, a }: { name: string; a?: AnalyticsRow }) {
+function engagementSummary(posts: CalendarRow[]) {
+  let published = 0, scheduled = 0, impressions = 0, reactions = 0, comments = 0,
+    reposts = 0, icp = 0, totalScore = 0, scored = 0, best = 0;
+  for (const p of posts) {
+    if (p.published_at) published++;
+    else if (p.scheduled_for) scheduled++;
+    const e = p.engagement;
+    if (!e) continue;
+    impressions += e.impressions ?? 0;
+    reactions += e.reactions ?? 0;
+    comments += e.comments ?? 0;
+    reposts += e.reposts ?? 0;
+    icp += e.audience?.icp ?? 0;
+    if (typeof e.score === "number") { totalScore += e.score; scored++; best = Math.max(best, e.score); }
+  }
+  return { published, scheduled, impressions, reactions, comments, reposts, icp,
+    avgScore: scored ? totalScore / scored : null, best, scored };
+}
+
+function AnalyticsPanel({ name, a, posts }: { name: string; a?: AnalyticsRow; posts: CalendarRow[] }) {
   const topicFit = Object.entries(a?.topic_icp_fit ?? {}).sort((x, y) => y[1] - x[1]);
-  const hasData = !!a && (a.avg_icp_pct !== null || topicFit.length > 0 ||
+  const s = engagementSummary(posts);
+  const hasEngagement = s.published > 0 || s.scored > 0;
+  const hasLearned = !!a && (a.avg_icp_pct !== null || topicFit.length > 0 ||
     (a.distilled_rules?.length ?? 0) > 0 || (a.hard_negatives?.length ?? 0) > 0);
 
   return (
@@ -195,18 +223,35 @@ function AnalyticsPanel({ name, a }: { name: string; a?: AnalyticsRow }) {
         hint={a?.computed_at ? `learned ${new Date(a.computed_at).toLocaleDateString()}` : "no learning run yet"}
       />
       <CardBody className="space-y-5">
-        {!hasData ? (
+        {!hasEngagement && !hasLearned ? (
           <EmptyState title="No analytics yet"
             hint="Metrics and ICP-fit appear after the nightly learn job runs on published posts." />
         ) : (
           <>
+            {hasEngagement && (
+              <div>
+                <div className="mb-2 text-[11px] uppercase tracking-wide text-slate-400">Engagement · all posts</div>
+                <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-8">
+                  <Kpi label="Published" value={String(s.published)} />
+                  <Kpi label="Scheduled" value={String(s.scheduled)} />
+                  <Kpi label="ICP engagers" value={String(s.icp)} accent />
+                  <Kpi label="Impressions" value={s.impressions.toLocaleString()} />
+                  <Kpi label="Reactions" value={String(s.reactions)} />
+                  <Kpi label="Comments" value={String(s.comments)} />
+                  <Kpi label="Reposts" value={String(s.reposts)} />
+                  <Kpi label="Avg / best score" value={s.avgScore === null ? "—" : `${s.avgScore.toFixed(1)} / ${s.best}`} />
+                </div>
+              </div>
+            )}
+            {hasLearned && (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <Kpi label="Avg ICP-fit" value={pct(a!.avg_icp_pct)} accent />
               <Kpi label="First-pass rate (30d)" value={pct(a!.first_pass_rate_30d)} />
               <Kpi label="Topics tracked" value={String(Object.keys(a!.topic_weights ?? {}).length)} />
               <Kpi label="Regression" value={a!.regression_alert ? "⚠ yes" : "ok"} bad={!!a!.regression_alert} />
             </div>
-            {a!.regression_alert && (
+            )}
+            {a?.regression_alert && (
               <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
                 Engagement regression: recent avg {a!.regression_alert.ma_short} vs baseline {a!.regression_alert.ma_long}
                 {" "}(ratio {a!.regression_alert.ratio}). Since {new Date(a!.regression_alert.since).toLocaleDateString()}.
@@ -229,7 +274,7 @@ function AnalyticsPanel({ name, a }: { name: string; a?: AnalyticsRow }) {
                 </div>
               </div>
             )}
-            {(a!.distilled_rules?.length ?? 0) > 0 && (
+            {(a?.distilled_rules?.length ?? 0) > 0 && (
               <div>
                 <div className="mb-1 text-[11px] uppercase tracking-wide text-slate-400">Learned style rules</div>
                 <ul className="space-y-1 text-xs text-slate-600">
@@ -237,7 +282,7 @@ function AnalyticsPanel({ name, a }: { name: string; a?: AnalyticsRow }) {
                 </ul>
               </div>
             )}
-            {(a!.hard_negatives?.length ?? 0) > 0 && (
+            {(a?.hard_negatives?.length ?? 0) > 0 && (
               <div>
                 <div className="mb-1 text-[11px] uppercase tracking-wide text-slate-400">Hard negatives (never do)</div>
                 <ul className="space-y-1 text-xs text-red-700">
@@ -264,6 +309,7 @@ function Kpi({ label, value, accent, bad }: { label: string; value: string; acce
 function PostCard({ r, isAdmin }: { r: CalendarRow; isAdmin: boolean }) {
   const status = r.published_at ? "Published" : (r.text_status ?? "New");
   const img = r.image_url_imgbb || r.image_url_source;
+  const textOnly = (r.post_type ?? "").toLowerCase() === "text";
   const when = r.published_at || r.scheduled_for;
   const e = r.engagement;
   const aud = e?.audience ?? null;
@@ -278,14 +324,19 @@ function PostCard({ r, isAdmin }: { r: CalendarRow; isAdmin: boolean }) {
           <a href={img} target="_blank" rel="noreferrer" className="shrink-0">
             <img src={img} alt="post" className="h-40 w-40 rounded-md border object-cover" />
           </a>
+        ) : textOnly ? (
+          <div className="grid h-40 w-40 shrink-0 place-items-center rounded-md border border-dashed bg-slate-50 text-center text-[10px] leading-4 text-slate-400">
+            <span>text-only<br />post<br /><span className="text-slate-300">(no image by design)</span></span>
+          </div>
         ) : (
-          <div className="grid h-40 w-40 shrink-0 place-items-center rounded-md border border-dashed bg-slate-50 text-[10px] text-slate-400">
-            no image
+          <div className="grid h-40 w-40 shrink-0 place-items-center rounded-md border border-dashed border-amber-300 bg-amber-50 text-center text-[10px] leading-4 text-amber-600">
+            image pending
           </div>
         )}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
             <Badge tone={STATUS_TONE[status] ?? "slate"}>{status}</Badge>
+            {textOnly && <Badge tone="slate">Text-only</Badge>}
             {!r.published_at && r.scheduled_for && new Date(r.scheduled_for) < new Date() && (
               <Badge tone="amber">⚠ overdue ({new Date(r.scheduled_for).toLocaleDateString()}) — publishes immediately if approved</Badge>
             )}
