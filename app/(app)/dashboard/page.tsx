@@ -168,7 +168,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
         <KpiCard label="Qualified"   value={qualified} accent />
       </section>
 
-      <section className="grid gap-6 md:grid-cols-3">
+      <section className="grid grid-cols-1 gap-6 md:grid-cols-3">
         <Card className="md:col-span-2">
           <CardHeader title="Pipeline funnel" hint="Conversion shown vs previous stage" />
           <CardBody>
@@ -194,7 +194,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
         </Card>
       </section>
 
-      <section className="grid gap-6 md:grid-cols-2">
+      <section className="grid grid-cols-1 gap-6 md:grid-cols-2">
         <Card>
           <CardHeader title="Hot leads" hint="Recently replied, accepted or qualified" action={
             <Link href="/leads" className="inline-flex items-center gap-1 text-xs text-electric hover:underline">
@@ -230,7 +230,7 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
             {narrative ? (
               <>
                 <div className="text-xs text-slate-400">Week of {narrative.week_starting}</div>
-                <div className="mt-3 whitespace-pre-line text-sm leading-6 text-slate-700">{narrative.body_md}</div>
+                <div className="mt-3 whitespace-pre-line break-words text-sm leading-6 text-slate-700">{narrative.body_md}</div>
               </>
             ) : (
               <EmptyState title="No summary yet" hint="The first weekly narrative is generated Monday 04:00." />

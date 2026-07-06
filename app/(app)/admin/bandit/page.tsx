@@ -49,8 +49,8 @@ export default async function BanditHealth() {
                   const isBest = winrate === maxWin && a.observations > 0;
                   return (
                     <div key={a.id} className="space-y-1">
-                      <div className="flex items-center gap-2 text-sm">
-                        <span className="font-medium text-slate-800">{a.key}</span>
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                        <span className="min-w-0 break-all font-medium text-slate-800">{a.key}</span>
                         {!a.active && <Badge tone="red">frozen{a.freeze_reason ? `: ${a.freeze_reason}` : ""}</Badge>}
                         {isBest && a.active && <Badge tone="green">leader</Badge>}
                         <span className="ml-auto text-xs text-slate-500">

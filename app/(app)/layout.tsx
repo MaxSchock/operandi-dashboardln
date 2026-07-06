@@ -4,6 +4,7 @@ import { LayoutDashboard, Users, Inbox, Sparkles, FileText, Activity, Settings, 
 import { createClient, createPublicClient } from "@/lib/supabase/server";
 import { SignOutButton } from "@/components/sign-out-button";
 import { ClientScopeSelector } from "@/components/client-scope-selector";
+import { MobileNav, type MobileNavItem } from "@/components/mobile-nav";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { getClientScope } from "@/lib/scope";
 
@@ -49,16 +50,21 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     : (isAdmin ? "All clients" : (cu?.client_slug ?? "—"));
 
   const nav = [
-    { href: "/dashboard", label: "Overview",  icon: LayoutDashboard, show: true },
-    { href: "/leads",     label: "Leads",     icon: Users,           show: true },
-    { href: "/engagement", label: "Warm DMs", icon: MessageSquare,   show: true },
-    { href: "/content",   label: "Content",   icon: CalendarDays,    show: true },
-    { href: "/activity",  label: "Activity",  icon: Activity,        show: true },
-    { href: "/templates", label: "Templates", icon: FileText,        show: true },
-    { href: "/admin",     label: "Admin",     icon: Shield,          show: isAdmin },
-    { href: "/admin/bandit",  label: "Bandit health", icon: Sparkles, show: isAdmin },
-    { href: "/admin/health",  label: "System health", icon: Inbox,    show: isAdmin },
+    { href: "/dashboard", label: "Overview",  icon: LayoutDashboard, key: "dashboard",  show: true },
+    { href: "/leads",     label: "Leads",     icon: Users,           key: "leads",      show: true },
+    { href: "/engagement", label: "Warm DMs", icon: MessageSquare,   key: "engagement", show: true },
+    { href: "/content",   label: "Content",   icon: CalendarDays,    key: "content",    show: true },
+    { href: "/activity",  label: "Activity",  icon: Activity,        key: "activity",   show: true },
+    { href: "/templates", label: "Templates", icon: FileText,        key: "templates",  show: true },
+    { href: "/admin",     label: "Admin",     icon: Shield,          key: "admin",      show: isAdmin },
+    { href: "/admin/bandit",  label: "Bandit health", icon: Sparkles, key: "bandit",    show: isAdmin },
+    { href: "/admin/health",  label: "System health", icon: Inbox,   key: "health",     show: isAdmin },
   ].filter(n => n.show);
+
+  // Serializable copy for the client-side mobile drawer (icons resolved there).
+  const mobileItems: MobileNavItem[] = nav.map(n => ({
+    href: n.href, label: n.label, icon: n.key as MobileNavItem["icon"],
+  }));
 
   return (
     <div className="flex min-h-screen bg-slate-50 text-slate-900">
@@ -95,6 +101,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
       <main className="flex-1 overflow-x-hidden">
         <AutoRefresh intervalMs={30000} />
+        <MobileNav
+          items={mobileItems}
+          tenantLabel={tenantLabel}
+          isAdmin={isAdmin}
+          scopeOptions={scopeOptions}
+          currentScope={scope ?? "all"}
+          userLabel={cu?.display_name ?? u.email ?? ""}
+        />
         <div className="mx-auto max-w-7xl p-6 md:p-8">{children}</div>
       </main>
     </div>

@@ -76,14 +76,14 @@ export default async function HealthPage() {
 
       <Card>
         <CardHeader title="Diagnostics" />
-        <CardBody className="p-0">
+        <CardBody className="p-0 overflow-x-auto">
           <table className="w-full text-sm">
             <tbody>
               {Object.entries(h.checks).map(([k, v]) => (
                 <tr key={k} className="border-t">
                   <td className="w-1/3 px-5 py-3 font-medium text-slate-700">{k}</td>
                   <td className="px-5 py-3 text-slate-600">
-                    <pre className="whitespace-pre-wrap text-xs">{typeof v === "object" ? JSON.stringify(v, null, 2) : String(v)}</pre>
+                    <pre className="whitespace-pre-wrap break-words text-xs">{typeof v === "object" ? JSON.stringify(v, null, 2) : String(v)}</pre>
                   </td>
                 </tr>
               ))}

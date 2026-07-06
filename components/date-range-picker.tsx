@@ -48,19 +48,19 @@ export function DateRangePicker({ defaultKey = "14d" as RangeKey }: { defaultKey
           </button>
         ))}
       </div>
-      <form onSubmit={applyCustom} className="inline-flex items-center gap-1 rounded-lg border bg-white p-1 text-xs">
+      <form onSubmit={applyCustom} className="inline-flex flex-wrap items-center gap-1 rounded-lg border bg-white p-1 text-xs">
         <input
           type="date"
           value={customSince}
           onChange={e => setCustomSince(e.target.value)}
-          className="rounded-md border-0 px-1.5 py-0.5 text-xs focus:outline-none"
+          className="min-w-0 flex-1 rounded-md border-0 px-1.5 py-0.5 text-xs focus:outline-none"
         />
         <span className="text-slate-400">→</span>
         <input
           type="date"
           value={customUntil}
           onChange={e => setCustomUntil(e.target.value)}
-          className="rounded-md border-0 px-1.5 py-0.5 text-xs focus:outline-none"
+          className="min-w-0 flex-1 rounded-md border-0 px-1.5 py-0.5 text-xs focus:outline-none"
         />
         <button
           type="submit"
