@@ -153,7 +153,7 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
             </>
           )}
 
-          {r.status === "storyboard_ready" && (
+          {(r.status === "storyboard_ready" || (r.status === "failed" && r.storyboard)) && (
             <div className="space-y-3 border-t pt-4">
               <form action={`${act}/approve-storyboard`} method="post">
                 <button className="rounded-md bg-emerald-600 px-4 py-2 text-xs font-medium text-white hover:opacity-90">

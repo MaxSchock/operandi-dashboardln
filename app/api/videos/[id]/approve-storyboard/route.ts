@@ -23,7 +23,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const { id } = await ctx.params;
   const request = await loadOwnedRequest(id, actor);
   if (!request) return NextResponse.json({ error: "not found" }, { status: 404 });
-  if (request.status !== "storyboard_ready") {
+  // failed renders refund the credit and can be retried by approving again
+  if (!["storyboard_ready", "failed"].includes(request.status)) {
     return NextResponse.json({ error: `cannot approve from status ${request.status}` }, { status: 409 });
   }
 
@@ -36,7 +37,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       storyboard_approved_by: actor.tier.userId,
       updated_at: nowIso,
     })
-    .eq("id", request.id).eq("status", "storyboard_ready")
+    .eq("id", request.id).eq("status", request.status)
     .select("id").maybeSingle();
   if (!moved) return NextResponse.json({ error: "request changed state, reload the page" }, { status: 409 });
 

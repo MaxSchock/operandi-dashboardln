@@ -13,6 +13,7 @@ const PAGES = [
   ["leads", "/leads", true],
   ["engagement", "/engagement", true],
   ["content", "/content", true],
+  ["videos", "/videos", true],
   ["activity", "/activity", true],
   ["templates", "/templates", true],
   ["admin", "/admin", true],
