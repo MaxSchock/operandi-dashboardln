@@ -6,6 +6,8 @@ import { Card, CardHeader, CardBody, Badge, EmptyState } from "@/components/ui";
 import { DateRangePicker } from "@/components/date-range-picker";
 import { resolveRange } from "@/lib/date-range";
 import { getClientScope } from "@/lib/scope";
+import { getTier } from "@/lib/tier";
+import { LockedPanel } from "@/components/locked-panel";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -37,6 +39,18 @@ function lead(row: LeadJoinRow): LeadInfo | null {
 const STAGES = ["all", "pre_contact", "engaged_post", "invited", "accepted", "messaged", "replied", "qualified", "opted_out", "expired", "paused"];
 
 export default async function LeadsPage({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
+  const tier = await getTier();
+  if (!tier.hasOutreach) {
+    return (
+      <div className="space-y-6">
+        <header>
+          <h1 className="font-display text-2xl text-navy">Leads</h1>
+        </header>
+        <LockedPanel feature="leads" />
+      </div>
+    );
+  }
+
   const params = await searchParams;
   const stage = params.stage ?? "all";
   const q = (params.q ?? "").trim();

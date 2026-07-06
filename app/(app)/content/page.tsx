@@ -2,6 +2,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardBody, Badge, EmptyState } from "@/components/ui";
 import { getClientScope } from "@/lib/scope";
+import { getTier } from "@/lib/tier";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -114,16 +115,18 @@ function GeneratePanel({ slug, name }: { slug: string; name: string }) {
 export default async function ContentPage() {
   const sb = await createClient();
   const scope = await getClientScope();
-  const { data: { user } } = await sb.auth.getUser();
+  const tier = await getTier();
 
-  const [{ data: calData }, { data: anData }, { data: userInfo }] = await Promise.all([
+  const [{ data: calData }, { data: anData }] = await Promise.all([
     sb.from("content_calendar").select("*").order("scheduled_for", { ascending: false }).limit(500),
     sb.from("content_analytics").select("*"),
-    user ? sb.from("client_users").select("role").eq("user_id", user.id).maybeSingle() : Promise.resolve({ data: null }),
   ]);
   let posts = (calData ?? []) as CalendarRow[];
   let analytics = (anData ?? []) as AnalyticsRow[];
-  const isAdmin = (userInfo as { role?: string } | null)?.role === "operandi_admin";
+  const isAdmin = tier.isAdmin;
+  // Clients with the content product manage their own posts (approve, edit,
+  // revisions, image, date). Suspend and generation stay admin-only.
+  const ownSlug = !isAdmin && (tier.features?.has_content ?? false) ? tier.clientSlug : null;
 
   if (scope) {
     posts = posts.filter(p => p.outreach_slug === scope);
@@ -149,8 +152,9 @@ export default async function ContentPage() {
       <header>
         <h1 className="font-display text-2xl text-navy">Content</h1>
         <p className="text-sm text-slate-500">
-          Per client: what the engine learned, and every post (full text + image) with its reach and
-          ICP-fit. Admins can approve, edit, request a revision, or suspend each post.
+          {isAdmin
+            ? "Per client: what the engine learned, and every post (full text + image) with its reach and ICP-fit. Admins can approve, edit, request a revision, or suspend each post."
+            : "Every post with its reach and engagement. Approve a post to schedule it, edit the text, request a text or image revision, upload your own image, or change the date."}
         </p>
       </header>
 
@@ -160,7 +164,7 @@ export default async function ContentPage() {
         sections.map(s => (
           <div key={s.slug} className="space-y-3">
             {isAdmin && <GeneratePanel slug={s.slug} name={s.name} />}
-            <AnalyticsPanel name={s.name} a={s.analytics} posts={s.posts} />
+            <AnalyticsPanel name={s.name} a={s.analytics} posts={s.posts} showInternals={isAdmin} />
             <Card>
               <CardHeader title={`Posts · ${s.name}`} hint={`${s.posts.length} post${s.posts.length === 1 ? "" : "s"}`} />
               <CardBody className="space-y-4">
@@ -168,14 +172,14 @@ export default async function ContentPage() {
                   <EmptyState title="No posts yet" />
                 ) : (
                   <>
-                    {s.posts.slice(0, POSTS_PER_CLIENT).map(r => <PostCard key={r.post_id} r={r} isAdmin={isAdmin} />)}
+                    {s.posts.slice(0, POSTS_PER_CLIENT).map(r => <PostCard key={r.post_id} r={r} isAdmin={isAdmin} ownSlug={ownSlug} />)}
                     {s.posts.length > POSTS_PER_CLIENT && (
                       <details className="group">
                         <summary className="cursor-pointer list-none rounded-md border border-dashed py-2 text-center text-xs font-medium text-electric hover:bg-slate-50">
                           Show {s.posts.length - POSTS_PER_CLIENT} more <span className="group-open:hidden">▾</span><span className="hidden group-open:inline">▴</span>
                         </summary>
                         <div className="mt-4 space-y-4">
-                          {s.posts.slice(POSTS_PER_CLIENT).map(r => <PostCard key={r.post_id} r={r} isAdmin={isAdmin} />)}
+                          {s.posts.slice(POSTS_PER_CLIENT).map(r => <PostCard key={r.post_id} r={r} isAdmin={isAdmin} ownSlug={ownSlug} />)}
                         </div>
                       </details>
                     )}
@@ -209,11 +213,13 @@ function engagementSummary(posts: CalendarRow[]) {
     avgScore: scored ? totalScore / scored : null, best, scored };
 }
 
-function AnalyticsPanel({ name, a, posts }: { name: string; a?: AnalyticsRow; posts: CalendarRow[] }) {
+function AnalyticsPanel({ name, a, posts, showInternals }: { name: string; a?: AnalyticsRow; posts: CalendarRow[]; showInternals: boolean }) {
   const topicFit = Object.entries(a?.topic_icp_fit ?? {}).sort((x, y) => y[1] - x[1]);
   const s = engagementSummary(posts);
   const hasEngagement = s.published > 0 || s.scored > 0;
-  const hasLearned = !!a && (a.avg_icp_pct !== null || topicFit.length > 0 ||
+  // Learning internals (rules, hard negatives, regression, topic weights) are
+  // operator tooling; clients only see engagement numbers.
+  const hasLearned = showInternals && !!a && (a.avg_icp_pct !== null || topicFit.length > 0 ||
     (a.distilled_rules?.length ?? 0) > 0 || (a.hard_negatives?.length ?? 0) > 0);
 
   return (
@@ -251,13 +257,13 @@ function AnalyticsPanel({ name, a, posts }: { name: string; a?: AnalyticsRow; po
               <Kpi label="Regression" value={a!.regression_alert ? "⚠ yes" : "ok"} bad={!!a!.regression_alert} />
             </div>
             )}
-            {a?.regression_alert && (
+            {showInternals && a?.regression_alert && (
               <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
                 Engagement regression: recent avg {a!.regression_alert.ma_short} vs baseline {a!.regression_alert.ma_long}
                 {" "}(ratio {a!.regression_alert.ratio}). Since {new Date(a!.regression_alert.since).toLocaleDateString()}.
               </div>
             )}
-            {topicFit.length > 0 && (
+            {showInternals && topicFit.length > 0 && (
               <div>
                 <div className="mb-2 text-[11px] uppercase tracking-wide text-slate-400">ICP-fit by topic</div>
                 <div className="space-y-1.5">
@@ -274,7 +280,7 @@ function AnalyticsPanel({ name, a, posts }: { name: string; a?: AnalyticsRow; po
                 </div>
               </div>
             )}
-            {(a?.distilled_rules?.length ?? 0) > 0 && (
+            {showInternals && (a?.distilled_rules?.length ?? 0) > 0 && (
               <div>
                 <div className="mb-1 text-[11px] uppercase tracking-wide text-slate-400">Learned style rules</div>
                 <ul className="space-y-1 text-xs text-slate-600">
@@ -282,7 +288,7 @@ function AnalyticsPanel({ name, a, posts }: { name: string; a?: AnalyticsRow; po
                 </ul>
               </div>
             )}
-            {(a?.hard_negatives?.length ?? 0) > 0 && (
+            {showInternals && (a?.hard_negatives?.length ?? 0) > 0 && (
               <div>
                 <div className="mb-1 text-[11px] uppercase tracking-wide text-slate-400">Hard negatives (never do)</div>
                 <ul className="space-y-1 text-xs text-red-700">
@@ -306,14 +312,15 @@ function Kpi({ label, value, accent, bad }: { label: string; value: string; acce
   );
 }
 
-function PostCard({ r, isAdmin }: { r: CalendarRow; isAdmin: boolean }) {
+function PostCard({ r, isAdmin, ownSlug }: { r: CalendarRow; isAdmin: boolean; ownSlug: string | null }) {
   const status = r.published_at ? "Published" : (r.text_status ?? "New");
   const img = r.image_url_imgbb || r.image_url_source;
   const textOnly = (r.post_type ?? "").toLowerCase() === "text";
   const when = r.published_at || r.scheduled_for;
   const e = r.engagement;
   const aud = e?.audience ?? null;
-  const canManage = isAdmin && status !== "Published" && r.sheet_row != null;
+  const isOwner = ownSlug != null && r.outreach_slug === ownSlug;
+  const canManage = (isAdmin || isOwner) && status !== "Published" && r.sheet_row != null;
   const act = `/api/admin/content-post/${r.content_slug}/${r.sheet_row}`;
   const schedDate = r.scheduled_for ? new Date(r.scheduled_for).toISOString().slice(0, 10) : "";
 
@@ -418,9 +425,11 @@ function PostCard({ r, isAdmin }: { r: CalendarRow; isAdmin: boolean }) {
             </form>
           </details>
 
-          <form action={`${act}?action=suspend`} method="post" className="ml-auto">
-            <button className="rounded-md bg-red-100 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-200">Suspend</button>
-          </form>
+          {isAdmin && (
+            <form action={`${act}?action=suspend`} method="post" className="ml-auto">
+              <button className="rounded-md bg-red-100 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-200">Suspend</button>
+            </form>
+          )}
         </div>
       )}
     </div>

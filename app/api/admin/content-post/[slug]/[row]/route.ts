@@ -5,22 +5,44 @@ import { createClient } from "@/lib/supabase/server";
  * POST /api/admin/content-post/:slug/:row?action=approve|suspend|revise-text|revise-image|edit-text
  *   body (form or JSON): notes (revise-*), text (edit-text)
  *
- * Operandi-admin only. Delegates to the strategist proxy, which forwards to the internal
- * content-engine daemon (writes the Google Sheet + content_engine_posts).
+ * Admin, or the client that owns the content slug. Ownership is resolved
+ * server-side (client_users.client_slug -> clients_master.content_engine_slug
+ * must equal the URL slug); the URL is never trusted. Suspend stays admin-only
+ * (it feeds hard-negative learning). Delegates to the strategist proxy, which
+ * forwards to the internal content-engine daemon (writes the Google Sheet +
+ * content_engine_posts).
  */
-const ACTIONS = new Set(["approve", "suspend", "revise-text", "revise-image", "edit-text", "set-date", "upload-image"]);
+const ADMIN_ACTIONS = new Set(["approve", "suspend", "revise-text", "revise-image", "edit-text", "set-date", "upload-image"]);
+const OWNER_ACTIONS = new Set(["approve", "revise-text", "revise-image", "edit-text", "set-date", "upload-image"]);
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: string; row: string }> }) {
   const { slug, row } = await ctx.params;
   const action = new URL(req.url).searchParams.get("action") ?? "";
-  if (!ACTIONS.has(action)) return NextResponse.json({ error: "unknown action" }, { status: 400 });
+  if (!ADMIN_ACTIONS.has(action)) return NextResponse.json({ error: "unknown action" }, { status: 400 });
 
   const sb = await createClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: "auth required" }, { status: 401 });
-  const { data: cu } = await sb.from("client_users").select("role").eq("user_id", user.id).maybeSingle();
-  if (cu?.role !== "operandi_admin") return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const { data: cu } = await sb.from("client_users").select("role, client_slug").eq("user_id", user.id).maybeSingle();
+  const isAdmin = cu?.role === "operandi_admin";
+
+  if (!isAdmin) {
+    if (!OWNER_ACTIONS.has(action)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    if (!cu?.client_slug) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    // Ownership is proven through RLS, not the URL: content_calendar only
+    // returns rows mapped to the caller's client_slug, so finding this exact
+    // slug+row there means the caller owns the post. client_features is
+    // self-readable and gates the content product.
+    const [{ data: cf }, { data: owned }] = await Promise.all([
+      sb.from("client_features").select("has_content").eq("client_slug", cu.client_slug).maybeSingle(),
+      sb.from("content_calendar").select("content_slug, sheet_row")
+        .eq("content_slug", slug).eq("sheet_row", Number(row)).limit(1).maybeSingle(),
+    ]);
+    if (!cf?.has_content || !owned) {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    }
+  }
 
   // Build the body the daemon expects.
   let payload: Record<string, string> = {};

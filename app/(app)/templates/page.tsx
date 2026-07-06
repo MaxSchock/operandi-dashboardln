@@ -1,8 +1,10 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardBody, Badge, EmptyState } from "@/components/ui";
 import { labelFor } from "@/lib/template-labels";
 import { getClientScope } from "@/lib/scope";
+import { getTier } from "@/lib/tier";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -22,6 +24,9 @@ type TemplateRow = {
 };
 
 export default async function TemplatesPage() {
+  const tier = await getTier();
+  if (!tier.hasOutreach) redirect("/dashboard");
+
   const sb = await createClient();
   const scope = await getClientScope();
   const { data: { user } } = await sb.auth.getUser();

@@ -1,12 +1,16 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Mail, Building2, Briefcase, Activity as ActivityIcon } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardBody, Badge, EmptyState } from "@/components/ui";
+import { getTier } from "@/lib/tier";
 
 export const dynamic = "force-dynamic";
 
 export default async function LeadDetail({ params }: { params: Promise<{ id: string }> }) {
+  const tier = await getTier();
+  if (!tier.hasOutreach) redirect("/leads");
+
   const { id } = await params;
   const leadId = Number(id);
   if (Number.isNaN(leadId)) notFound();

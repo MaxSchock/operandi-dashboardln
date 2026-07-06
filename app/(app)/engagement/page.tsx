@@ -1,6 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardBody, Badge, EmptyState } from "@/components/ui";
 import { getClientScope } from "@/lib/scope";
+import { getTier } from "@/lib/tier";
+import { LockedPanel } from "@/components/locked-panel";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -43,6 +45,18 @@ const ENGAGEMENT_LABEL: Record<string, string> = {
 };
 
 export default async function EngagementPage() {
+  const tier = await getTier();
+  if (!tier.hasOutreach) {
+    return (
+      <div className="space-y-6">
+        <header>
+          <h1 className="font-display text-2xl text-navy">Warm DMs</h1>
+        </header>
+        <LockedPanel feature="engagement" />
+      </div>
+    );
+  }
+
   const sb = await createClient();
   const scope = await getClientScope();
   const { data: { user } } = await sb.auth.getUser();

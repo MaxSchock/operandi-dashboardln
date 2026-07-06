@@ -1,12 +1,13 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { LayoutDashboard, Users, Inbox, Sparkles, FileText, Activity, Settings, LogOut, Shield, MessageSquare, CalendarDays } from "lucide-react";
+import { LayoutDashboard, Users, Inbox, Sparkles, FileText, Activity, Settings, LogOut, Shield, MessageSquare, CalendarDays, Lock, Clapperboard } from "lucide-react";
 import { createClient, createPublicClient } from "@/lib/supabase/server";
 import { SignOutButton } from "@/components/sign-out-button";
 import { ClientScopeSelector } from "@/components/client-scope-selector";
 import { MobileNav, type MobileNavItem } from "@/components/mobile-nav";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { getClientScope } from "@/lib/scope";
+import { getTier } from "@/lib/tier";
 
 export const dynamic = "force-dynamic";
 
@@ -21,23 +22,24 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // re-bind to a non-nullable local.
   const u = user;
 
-  const { data: cu } = await sb
-    .from("client_users")
-    .select("role, client_slug, display_name, email")
-    .eq("user_id", u.id)
-    .maybeSingle();
+  const tier = await getTier();
+  const cu = tier.userId
+    ? { role: tier.role, client_slug: tier.clientSlug, display_name: tier.displayName, email: tier.email }
+    : null;
 
-  const isAdmin = cu?.role === "operandi_admin";
+  const isAdmin = tier.isAdmin;
   const scope = await getClientScope();
 
-  // Admins can switch between any v2 client; non-admins are pinned to their
+  // Admins can switch between any v2 outreach client plus content-only clients
+  // (rows whose content_engine_slug is set). Non-admins are pinned to their
   // own slug (RLS will reject anything else anyway). clients_master lives in
   // the public schema, so use a public-schema client here.
   const sbPublic = await createPublicClient();
   const { data: clientRows } = isAdmin
     ? await sbPublic.from("clients_master")
         .select("client_slug, client_display_name")
-        .eq("outreach_engine", "v2")
+        .or("outreach_engine.eq.v2,content_engine_slug.not.is.null")
+        .eq("active", true)
         .order("client_slug")
     : { data: [] as { client_slug: string; client_display_name: string | null }[] };
   const scopeOptions = (clientRows ?? []).map(r => ({
@@ -49,21 +51,26 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     ? (scopeOptions.find(o => o.slug === scope)?.label ?? scope)
     : (isAdmin ? "All clients" : (cu?.client_slug ?? "—"));
 
+  // Locked items stay visible (they render an upsell page); hidden items are
+  // simply absent for content-only clients. Server guards on each page are the
+  // real enforcement; this only shapes the nav.
+  const locked = !tier.hasOutreach;
   const nav = [
-    { href: "/dashboard", label: "Overview",  icon: LayoutDashboard, key: "dashboard",  show: true },
-    { href: "/leads",     label: "Leads",     icon: Users,           key: "leads",      show: true },
-    { href: "/engagement", label: "Warm DMs", icon: MessageSquare,   key: "engagement", show: true },
-    { href: "/content",   label: "Content",   icon: CalendarDays,    key: "content",    show: true },
-    { href: "/activity",  label: "Activity",  icon: Activity,        key: "activity",   show: true },
-    { href: "/templates", label: "Templates", icon: FileText,        key: "templates",  show: true },
-    { href: "/admin",     label: "Admin",     icon: Shield,          key: "admin",      show: isAdmin },
-    { href: "/admin/bandit",  label: "Bandit health", icon: Sparkles, key: "bandit",    show: isAdmin },
-    { href: "/admin/health",  label: "System health", icon: Inbox,   key: "health",     show: isAdmin },
+    { href: "/dashboard", label: "Overview",  icon: LayoutDashboard, key: "dashboard",  show: true,  locked: false },
+    { href: "/leads",     label: "Leads",     icon: Users,           key: "leads",      show: true,  locked },
+    { href: "/engagement", label: "Warm DMs", icon: MessageSquare,   key: "engagement", show: true,  locked },
+    { href: "/content",   label: "Content",   icon: CalendarDays,    key: "content",    show: true,  locked: false },
+    { href: "/videos",    label: "Videos",    icon: Clapperboard,    key: "videos",     show: tier.videoEnabled, locked: false },
+    { href: "/activity",  label: "Activity",  icon: Activity,        key: "activity",   show: tier.hasOutreach, locked: false },
+    { href: "/templates", label: "Templates", icon: FileText,        key: "templates",  show: tier.hasOutreach, locked: false },
+    { href: "/admin",     label: "Admin",     icon: Shield,          key: "admin",      show: isAdmin, locked: false },
+    { href: "/admin/bandit",  label: "Bandit health", icon: Sparkles, key: "bandit",    show: isAdmin, locked: false },
+    { href: "/admin/health",  label: "System health", icon: Inbox,   key: "health",     show: isAdmin, locked: false },
   ].filter(n => n.show);
 
   // Serializable copy for the client-side mobile drawer (icons resolved there).
   const mobileItems: MobileNavItem[] = nav.map(n => ({
-    href: n.href, label: n.label, icon: n.key as MobileNavItem["icon"],
+    href: n.href, label: n.label, icon: n.key as MobileNavItem["icon"], locked: n.locked,
   }));
 
   return (
@@ -88,6 +95,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             >
               <item.icon className="h-4 w-4 text-slate-500" />
               <span>{item.label}</span>
+              {item.locked && <Lock className="ml-auto h-3 w-3 text-slate-400" />}
             </Link>
           ))}
         </nav>

@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { Suspense } from "react";
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardBody, Badge, EmptyState } from "@/components/ui";
 import { DateRangePicker } from "@/components/date-range-picker";
 import { resolveRange } from "@/lib/date-range";
 import { getClientScope } from "@/lib/scope";
+import { getTier } from "@/lib/tier";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -32,6 +34,9 @@ const EVENT_TONE: Record<string, "slate" | "green" | "amber" | "red" | "electric
 };
 
 export default async function ActivityPage({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
+  const tier = await getTier();
+  if (!tier.hasOutreach) redirect("/dashboard");
+
   const params = await searchParams;
   const typeFilter = params.type ?? "all";
   const channelFilter = params.channel ?? "all";

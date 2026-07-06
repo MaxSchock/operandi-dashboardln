@@ -9,6 +9,7 @@ import { ActivitySpark } from "@/components/activity-spark";
 import { DateRangePicker } from "@/components/date-range-picker";
 import { resolveRange, dayBuckets } from "@/lib/date-range";
 import { getClientScope } from "@/lib/scope";
+import { getTier } from "@/lib/tier";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -147,6 +148,11 @@ async function fetchData(params: { range?: string; since?: string; until?: strin
 }
 
 export default async function OverviewPage({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
+  const tier = await getTier();
+  if (!tier.hasOutreach) {
+    return <ContentOverview />;
+  }
+
   const params = await searchParams;
   const { range, funnel, series, totalLeads, accepted, replied, qualified, deltaEvents, hot, narrative } = await fetchData(params);
   const funnelData = funnel;
@@ -234,6 +240,115 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
               </>
             ) : (
               <EmptyState title="No summary yet" hint="The first weekly narrative is generated Monday 04:00." />
+            )}
+          </CardBody>
+        </Card>
+      </section>
+    </div>
+  );
+}
+
+type ContentCalRow = {
+  content_name: string | null;
+  text_content: string | null;
+  text_status: string | null;
+  scheduled_for: string | null;
+  published_at: string | null;
+  linkedin_url: string | null;
+  engagement: {
+    reactions?: number; comments?: number; reposts?: number; impressions?: number; score?: number;
+    audience?: { icp?: number } | null;
+  } | null;
+};
+
+/**
+ * Overview for content-only clients: their posting pipeline and engagement,
+ * instead of a lead funnel that would sit at zero.
+ */
+async function ContentOverview() {
+  const sb = await createClient();
+  const { data } = await sb
+    .from("content_calendar")
+    .select("content_name, text_content, text_status, scheduled_for, published_at, linkedin_url, engagement")
+    .order("scheduled_for", { ascending: false })
+    .limit(500);
+  const posts = (data ?? []) as ContentCalRow[];
+
+  let published = 0, impressions = 0, reactions = 0, comments = 0, reposts = 0, icp = 0;
+  const now = new Date();
+  const upcoming: ContentCalRow[] = [];
+  const waiting: ContentCalRow[] = [];
+  for (const p of posts) {
+    if (p.published_at) {
+      published++;
+      const e = p.engagement;
+      if (e) {
+        impressions += e.impressions ?? 0;
+        reactions += e.reactions ?? 0;
+        comments += e.comments ?? 0;
+        reposts += e.reposts ?? 0;
+        icp += e.audience?.icp ?? 0;
+      }
+    } else {
+      if (p.scheduled_for && new Date(p.scheduled_for) >= now) upcoming.push(p);
+      if (p.text_status && p.text_status !== "Approved" && p.text_status !== "Suspended") waiting.push(p);
+    }
+  }
+  upcoming.sort((a, b) => (a.scheduled_for ?? "").localeCompare(b.scheduled_for ?? ""));
+  const next = upcoming[0] ?? null;
+
+  return (
+    <div className="space-y-6">
+      <header>
+        <h1 className="font-display text-2xl text-navy">Overview</h1>
+        <p className="text-sm text-slate-500">Your content at a glance.</p>
+      </header>
+
+      <section className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <KpiCard label="Published posts" value={published} />
+        <KpiCard label="Impressions" value={impressions} accent />
+        <KpiCard label="Reactions" value={reactions} accent />
+        <KpiCard label="Comments" value={comments} accent />
+      </section>
+
+      <section className="grid grid-cols-1 gap-6 md:grid-cols-2">
+        <Card>
+          <CardHeader title="Next scheduled post" hint={next?.scheduled_for ? new Date(next.scheduled_for).toLocaleString() : undefined} />
+          <CardBody>
+            {next ? (
+              <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded-md bg-slate-50 p-3 text-xs leading-5 text-slate-700">{next.text_content ?? "(no text yet)"}</pre>
+            ) : (
+              <EmptyState title="Nothing scheduled" hint="New posts appear here once they are prepared." />
+            )}
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader
+            title="Waiting for your review"
+            hint={`${waiting.length} post${waiting.length === 1 ? "" : "s"}`}
+            action={
+              <Link href="/content" className="inline-flex items-center gap-1 text-xs text-electric hover:underline">
+                Review in Content <ArrowRight className="h-3 w-3" />
+              </Link>
+            }
+          />
+          <CardBody className="p-0">
+            {waiting.length === 0 ? (
+              <EmptyState title="All caught up" hint="Posts that need your approval will show up here." />
+            ) : (
+              <ul className="divide-y">
+                {waiting.slice(0, 6).map((p, i) => (
+                  <li key={i} className="px-5 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0 truncate text-sm text-slate-700">
+                        {(p.text_content ?? "").slice(0, 90) || "(no text yet)"}
+                      </div>
+                      <Badge tone="amber">{p.text_status ?? "New"}</Badge>
+                    </div>
+                  </li>
+                ))}
+              </ul>
             )}
           </CardBody>
         </Card>

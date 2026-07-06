@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, Users, Inbox, Sparkles, FileText, Activity,
-  Shield, MessageSquare, CalendarDays, Menu, X,
+  Shield, MessageSquare, CalendarDays, Menu, X, Lock, Clapperboard,
 } from "lucide-react";
 import { ClientScopeSelector } from "@/components/client-scope-selector";
 import { SignOutButton } from "@/components/sign-out-button";
@@ -15,6 +15,7 @@ const ICONS = {
   leads: Users,
   engagement: MessageSquare,
   content: CalendarDays,
+  videos: Clapperboard,
   activity: Activity,
   templates: FileText,
   admin: Shield,
@@ -22,7 +23,7 @@ const ICONS = {
   health: Inbox,
 } as const;
 
-export type MobileNavItem = { href: string; label: string; icon: keyof typeof ICONS };
+export type MobileNavItem = { href: string; label: string; icon: keyof typeof ICONS; locked?: boolean };
 
 /**
  * Mobile-only navigation. Renders a top bar with a hamburger that opens a
@@ -109,6 +110,7 @@ export function MobileNav({
                   >
                     <Icon className="h-4 w-4 text-slate-500" />
                     <span>{item.label}</span>
+                    {item.locked && <Lock className="ml-auto h-3 w-3 text-slate-400" />}
                   </Link>
                 );
               })}
