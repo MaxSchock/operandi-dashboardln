@@ -8,7 +8,8 @@ import { createClient } from "@/lib/supabase/server";
  * Operandi-admin only. Delegates to the strategist proxy, which forwards to the internal
  * content-engine daemon (writes the Google Sheet + content_engine_posts).
  */
-const ACTIONS = new Set(["approve", "suspend", "revise-text", "revise-image", "edit-text", "set-date"]);
+const ACTIONS = new Set(["approve", "suspend", "revise-text", "revise-image", "edit-text", "set-date", "upload-image"]);
+const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: string; row: string }> }) {
   const { slug, row } = await ctx.params;
@@ -31,6 +32,17 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: stri
     if (action === "edit-text") payload = { text: String(fd.get("text") ?? "") };
     else if (action === "revise-text" || action === "revise-image") payload = { notes: String(fd.get("notes") ?? "") };
     else if (action === "set-date") payload = { date: String(fd.get("date") ?? ""), time: String(fd.get("time") ?? "") };
+    else if (action === "upload-image") {
+      const file = fd.get("image");
+      if (!(file instanceof File) || file.size === 0) {
+        return NextResponse.json({ error: "no image file" }, { status: 400 });
+      }
+      if (file.size > MAX_IMAGE_BYTES) {
+        return NextResponse.json({ error: `image too large (max ${MAX_IMAGE_BYTES} bytes)` }, { status: 413 });
+      }
+      const b64 = Buffer.from(await file.arrayBuffer()).toString("base64");
+      payload = { image_b64: b64, filename: file.name || "upload.png" };
+    }
   }
 
   const base = process.env.STRATEGIST_BASE_URL;

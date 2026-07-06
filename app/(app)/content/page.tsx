@@ -408,6 +408,16 @@ function PostCard({ r, isAdmin }: { r: CalendarRow; isAdmin: boolean }) {
             </form>
           </details>
 
+          <details className="group">
+            <summary className="cursor-pointer list-none rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200">Upload image</summary>
+            <form action={`${act}?action=upload-image`} method="post" encType="multipart/form-data" className="mt-2 w-80 max-w-full space-y-1">
+              <input type="file" name="image" accept="image/*" required
+                className="block w-full text-xs text-slate-600 file:mr-2 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1 file:text-xs file:font-medium file:text-slate-700 hover:file:bg-slate-200" />
+              <p className="text-[11px] text-slate-400">Replaces the AI image. The post stays for review, click Approve to publish.</p>
+              <button className="mt-1 rounded-md bg-electric px-3 py-1 text-xs font-medium text-white hover:opacity-90">Upload image</button>
+            </form>
+          </details>
+
           <form action={`${act}?action=suspend`} method="post" className="ml-auto">
             <button className="rounded-md bg-red-100 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-200">Suspend</button>
           </form>
