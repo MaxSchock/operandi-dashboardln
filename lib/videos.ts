@@ -100,9 +100,11 @@ export async function addEvent(
   });
 }
 
-/** Conservative per-render estimates (standard-tier pricing) used for the cap check. */
+/** Conservative per-render estimates (standard-tier pricing) used for the cap check.
+ * broll now always carries a narrator voiceover + STT captions; client-uploaded
+ * clips replace generated shots, so real cost usually lands below this. */
 export function estimateCostUsd(style: string, durationS: number, voice: boolean): number {
   const perSecond = style === "typography" ? 0 : style === "talking_head" ? 0.14 : 0.3024;
-  const extras = 0.2 + (voice ? 0.05 : 0);
+  const extras = 0.2 + (style === "typography" ? 0 : 0.15) + (voice ? 0.05 : 0);
   return Math.round((perSecond * durationS + extras) * 100) / 100;
 }

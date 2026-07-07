@@ -4,6 +4,10 @@ import { resolveVideoActor, addEvent, estimateCostUsd } from "@/lib/videos";
 
 const STYLES = new Set(["typography", "broll", "talking_head"]);
 const LANGS = new Set(["en", "de", "fr", "nl", "es"]);
+const ASPECTS = new Set(["9:16", "1:1", "16:9"]);
+const HOOKS = new Set(["Bold claim", "Question", "Surprising stat", "Story opening"]);
+const PILLARS = new Set(["Leadership", "AI at work", "Founder life", "Mindset", "Industry insight"]);
+const CTA_STYLES = new Set(["Comment prompt", "Follow for more", "Link in comments"]);
 
 /**
  * POST /api/videos — create a video request from the wizard.
@@ -33,6 +37,10 @@ export async function POST(req: NextRequest) {
   const linkedPostId = String(body.linked_post_id ?? "").trim();
   const durationS = Number(body.duration_s ?? 0);
   const voice = body.voice === true || body.voice === "true" || body.voice === "on";
+  const aspect = ASPECTS.has(String(body.aspect)) ? String(body.aspect) : "9:16";
+  const hookType = HOOKS.has(String(body.hook_type)) ? String(body.hook_type) : null;
+  const topicPillar = PILLARS.has(String(body.topic_pillar)) ? String(body.topic_pillar) : null;
+  const ctaStyle = CTA_STYLES.has(String(body.cta_style)) ? String(body.cta_style) : null;
 
   if (!goal || !keyMessage || !cta) {
     return NextResponse.json({ error: "goal, key_message and cta are required" }, { status: 400 });
@@ -57,6 +65,7 @@ export async function POST(req: NextRequest) {
     brief: {
       goal, key_message: keyMessage, cta, style, language,
       visual_directions: visualDirections, linked_post_id: linkedPostId || null, voice,
+      aspect, hook_type: hookType, topic_pillar: topicPillar, cta_style: ctaStyle,
     },
     duration_s: durationS,
     cost_estimated_usd: estimateCostUsd(style, durationS, voice),

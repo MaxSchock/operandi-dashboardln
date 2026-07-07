@@ -4,6 +4,7 @@ import { ArrowLeft, Download } from "lucide-react";
 import { createPublicClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardBody, Badge, EmptyState } from "@/components/ui";
 import { getTier } from "@/lib/tier";
+import { VideoStatusPoller } from "@/components/video-status-poller";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -65,6 +66,7 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
 
   return (
     <div className="space-y-6">
+      <VideoStatusPoller status={r.status} />
       <div>
         <Link href="/videos" className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700">
           <ArrowLeft className="h-3 w-3" /> Back to videos
@@ -86,6 +88,14 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
       {r.status === "failed" && (
         <div className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700">
           Production failed and your credit was returned. {r.error ? `Detail: ${r.error}` : ""} You can approve the storyboard again to retry.
+        </div>
+      )}
+
+      {["queued", "rendering", "recomposing", "edit_requested"].includes(r.status) && (
+        <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+          {r.status === "queued" || r.status === "rendering"
+            ? "In production: this usually takes 15-45 minutes. This page refreshes itself."
+            : "Applying your edit: usually just a few minutes. This page refreshes itself."}
         </div>
       )}
 
@@ -113,7 +123,7 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
           title="Storyboard"
           hint={
             r.status === "storyboard_pending"
-              ? "being written, refresh in a minute"
+              ? "being written, this page refreshes itself"
               : r.status === "storyboard_ready"
                 ? "review and approve to start production"
                 : undefined
@@ -121,7 +131,7 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
         />
         <CardBody className="space-y-4">
           {!r.storyboard ? (
-            <EmptyState title="Storyboard in progress" hint="The draft usually takes a couple of minutes. Refresh the page." />
+            <EmptyState title="Storyboard in progress" hint="The draft usually takes about 2 minutes. This page refreshes itself." />
           ) : (
             <>
               {r.storyboard.script && (

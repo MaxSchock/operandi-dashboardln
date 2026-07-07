@@ -23,6 +23,7 @@ export function VideoWizard({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [files, setFiles] = useState<File[]>([]);
+  const [fileWarning, setFileWarning] = useState<string | null>(null);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -38,6 +39,10 @@ export function VideoWizard({
       voice: fd.get("voice") === "on",
       visual_directions: fd.get("visual_directions"),
       linked_post_id: fd.get("linked_post_id"),
+      aspect: fd.get("aspect"),
+      hook_type: fd.get("hook_type"),
+      topic_pillar: fd.get("topic_pillar"),
+      cta_style: fd.get("cta_style"),
     };
 
     try {
@@ -96,18 +101,22 @@ export function VideoWizard({
           className="w-full rounded-md border bg-white px-2 py-1.5 text-sm" />
       </Field>
 
+      <Field label="Style" required>
+        <select name="style" required defaultValue="broll" className="w-full rounded-md border bg-white px-2 py-1.5 text-sm">
+          <option value="broll">Scenes: your uploaded clips plus AI footage, narrator voiceover, captions (recommended)</option>
+          <option value="typography">Text-driven: animated text cards, music, no voice</option>
+          <option value="talking_head" disabled={!voiceAvailable}>
+            Talking head: you speaking to camera{voiceAvailable ? "" : " (needs a recorded voice consent, ask us to set it up)"}
+          </option>
+        </select>
+        <p className="mt-1 text-xs text-slate-500">
+          Real footage performs best on LinkedIn: if you upload clips below, we build the video around them.
+        </p>
+      </Field>
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Field label="Style" required>
-          <select name="style" required className="w-full rounded-md border bg-white px-2 py-1.5 text-sm">
-            <option value="typography">Text-driven (animated typography)</option>
-            <option value="broll">Scenes (AI b-roll)</option>
-            <option value="talking_head" disabled={!voiceAvailable}>
-              Talking head{voiceAvailable ? "" : " (needs voice consent)"}
-            </option>
-          </select>
-        </Field>
-        <Field label={`Duration (3-${maxDurationS} seconds)`} required>
-          <input name="duration_s" type="number" min={3} max={maxDurationS} defaultValue={Math.min(12, maxDurationS)} required
+        <Field label={`Duration (3-${maxDurationS}s, 30-60s performs best)`} required>
+          <input name="duration_s" type="number" min={3} max={maxDurationS} defaultValue={Math.min(45, maxDurationS)} required
             className="w-full rounded-md border bg-white px-2 py-1.5 text-sm" />
         </Field>
         <Field label="Language" required>
@@ -117,6 +126,40 @@ export function VideoWizard({
             <option value="fr">French</option>
             <option value="nl">Dutch</option>
             <option value="es">Spanish</option>
+          </select>
+        </Field>
+        <Field label="Format" required>
+          <select name="aspect" required defaultValue="9:16" className="w-full rounded-md border bg-white px-2 py-1.5 text-sm">
+            <option value="9:16">Vertical 9:16 (recommended)</option>
+            <option value="1:1">Square 1:1</option>
+            <option value="16:9">Horizontal 16:9</option>
+          </select>
+        </Field>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <Field label="Opening hook" required>
+          <select name="hook_type" required defaultValue="Bold claim" className="w-full rounded-md border bg-white px-2 py-1.5 text-sm">
+            <option value="Bold claim">Bold claim (a counterintuitive statement)</option>
+            <option value="Question">Question to the viewer</option>
+            <option value="Surprising stat">Surprising stat or number</option>
+            <option value="Story opening">Story opening (a real moment)</option>
+          </select>
+        </Field>
+        <Field label="Topic pillar" required>
+          <select name="topic_pillar" required className="w-full rounded-md border bg-white px-2 py-1.5 text-sm">
+            <option value="Leadership">Leadership</option>
+            <option value="AI at work">AI at work</option>
+            <option value="Founder life">Founder life</option>
+            <option value="Mindset">Mindset</option>
+            <option value="Industry insight">Industry insight</option>
+          </select>
+        </Field>
+        <Field label="CTA style" required>
+          <select name="cta_style" required defaultValue="Comment prompt" className="w-full rounded-md border bg-white px-2 py-1.5 text-sm">
+            <option value="Comment prompt">Invite comments (soft question)</option>
+            <option value="Follow for more">Follow for more</option>
+            <option value="Link in comments">Link in comments</option>
           </select>
         </Field>
       </div>
@@ -143,14 +186,26 @@ export function VideoWizard({
           className="w-full rounded-md border bg-white px-2 py-1.5 text-sm" />
       </Field>
 
-      <Field label="Reference photos or videos (optional, max 20MB per image / 100MB per video)">
+      <Field label="Your photos or clips (optional but recommended, max 20MB per image / 100MB per video)">
         <input
           type="file"
           multiple
           accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm"
-          onChange={e => setFiles([...(e.target.files ?? [])])}
+          onChange={e => {
+            const all = [...(e.target.files ?? [])];
+            const ok = all.filter(f => f.size <= (f.type.startsWith("video/") ? 100 * 1024 * 1024 : 20 * 1024 * 1024));
+            setFiles(ok);
+            setFileWarning(ok.length < all.length
+              ? `${all.length - ok.length} file(s) skipped: over the size limit (20MB images, 100MB videos).`
+              : null);
+          }}
           className="block w-full text-xs text-slate-600 file:mr-2 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-slate-700 hover:file:bg-slate-200"
         />
+        <p className="mt-1 text-xs text-slate-500">
+          Short real clips (an event, your office, a keynote moment) make the strongest videos and are used as
+          actual footage. Photos guide the look: sharp, well lit, subject centered.
+        </p>
+        {fileWarning && <div className="mt-1 text-xs text-amber-600">{fileWarning}</div>}
         {files.length > 0 && (
           <div className="mt-1 text-xs text-slate-500">{files.length} file{files.length === 1 ? "" : "s"} selected</div>
         )}
@@ -159,6 +214,8 @@ export function VideoWizard({
       <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600">
         Next step: we draft a free storyboard (script and shot list) for you to approve.
         Nothing is produced and no budget is used until you approve it.
+        The storyboard usually takes about 2 minutes; production takes 15-45 minutes after your approval.
+        Spoken words are captioned automatically.
       </div>
 
       {error && <div className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700">{error}</div>}
