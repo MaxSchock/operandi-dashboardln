@@ -9,7 +9,7 @@ import { ActivitySpark } from "@/components/activity-spark";
 import { DateRangePicker } from "@/components/date-range-picker";
 import { resolveRange, dayBuckets } from "@/lib/date-range";
 import { getClientScope } from "@/lib/scope";
-import { getTier } from "@/lib/tier";
+import { getTier, type ClientFeatures } from "@/lib/tier";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -148,12 +148,28 @@ async function fetchData(params: { range?: string; since?: string; until?: strin
 }
 
 export default async function OverviewPage({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
-  const tier = await getTier();
-  if (!tier.hasOutreach) {
-    return <ContentOverview />;
-  }
-
   const params = await searchParams;
+  const tier = await getTier();
+  const scope = await getClientScope();
+
+  // Pick the view by the EFFECTIVE client (admins follow the scope selector,
+  // clients are always their own slug), not by the viewer's role: an admin
+  // scoped to a content-only client should see their content overview, not a
+  // lead funnel sitting at zero.
+  let features = tier.features;
+  if (tier.isAdmin && scope) {
+    const sb = await createClient();
+    const { data } = await sb
+      .from("client_features")
+      .select("*")
+      .eq("client_slug", scope)
+      .maybeSingle();
+    features = (data as ClientFeatures | null) ?? null;
+  }
+  const contentOnly = features ? !features.has_outreach && features.has_content : !tier.hasOutreach;
+  if (contentOnly) {
+    return <ContentOverview slug={tier.isAdmin ? scope : tier.clientSlug} params={params} />;
+  }
   const { range, funnel, series, totalLeads, accepted, replied, qualified, deltaEvents, hot, narrative } = await fetchData(params);
   const funnelData = funnel;
 
@@ -250,75 +266,165 @@ export default async function OverviewPage({ searchParams }: { searchParams: Pro
 
 type ContentCalRow = {
   content_name: string | null;
+  post_type: string | null;
   text_content: string | null;
   text_status: string | null;
+  image_status: string | null;
   scheduled_for: string | null;
   published_at: string | null;
   linkedin_url: string | null;
   engagement: {
     reactions?: number; comments?: number; reposts?: number; impressions?: number; score?: number;
-    audience?: { icp?: number } | null;
+    audience?: { icp?: number; total?: number } | null;
   } | null;
 };
+
+function fmtDay(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "Europe/Berlin" });
+}
+
+function fmtDateTime(iso: string): string {
+  return new Date(iso).toLocaleString("en-GB", {
+    weekday: "short", day: "numeric", month: "short",
+    hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin",
+  });
+}
 
 /**
  * Overview for content-only clients: their posting pipeline and engagement,
  * instead of a lead funnel that would sit at zero.
  */
-async function ContentOverview() {
+async function ContentOverview({ slug, params }: { slug: string | null; params: Record<string, string> }) {
+  const range = resolveRange(params, "30d");
   const sb = await createClient();
-  const { data } = await sb
+  let q = sb
     .from("content_calendar")
-    .select("content_name, text_content, text_status, scheduled_for, published_at, linkedin_url, engagement")
+    .select("content_name, post_type, text_content, text_status, image_status, scheduled_for, published_at, linkedin_url, engagement")
     .order("scheduled_for", { ascending: false })
     .limit(500);
+  // RLS already confines clients to their own rows; the filter matters for
+  // admins, whose view spans every client.
+  if (slug) q = q.eq("outreach_slug", slug);
+  const { data } = await q;
   const posts = (data ?? []) as ContentCalRow[];
 
-  let published = 0, impressions = 0, reactions = 0, comments = 0, reposts = 0, icp = 0;
-  const now = new Date();
-  const upcoming: ContentCalRow[] = [];
-  const waiting: ContentCalRow[] = [];
-  for (const p of posts) {
-    if (p.published_at) {
-      published++;
+  const inRange = (iso: string, since: Date | null, until: Date) => {
+    const t = new Date(iso).getTime();
+    return (!since || t >= since.getTime()) && t <= until.getTime();
+  };
+  const published = posts.filter(p => p.published_at);
+  const curr = published
+    .filter(p => inRange(p.published_at!, range.since, range.until))
+    .sort((a, b) => (b.published_at ?? "").localeCompare(a.published_at ?? ""));
+  const prev = range.prevSince
+    ? published.filter(p => inRange(p.published_at!, range.prevSince, range.prevUntil!))
+    : null;
+
+  // Engagement jsonb is the latest cumulative snapshot per post, so KPIs read
+  // as "engagement of the posts published in this window".
+  const sum = (rows: ContentCalRow[]) => {
+    const s = { posts: rows.length, impressions: 0, engagements: 0, icp: 0, sampled: 0 };
+    for (const p of rows) {
       const e = p.engagement;
-      if (e) {
-        impressions += e.impressions ?? 0;
-        reactions += e.reactions ?? 0;
-        comments += e.comments ?? 0;
-        reposts += e.reposts ?? 0;
-        icp += e.audience?.icp ?? 0;
-      }
-    } else {
-      if (p.scheduled_for && new Date(p.scheduled_for) >= now) upcoming.push(p);
-      if (p.text_status && p.text_status !== "Approved" && p.text_status !== "Suspended") waiting.push(p);
+      if (!e) continue;
+      s.impressions += e.impressions ?? 0;
+      s.engagements += (e.reactions ?? 0) + (e.comments ?? 0) + (e.reposts ?? 0);
+      s.icp += e.audience?.icp ?? 0;
+      s.sampled += e.audience?.total ?? 0;
     }
-  }
-  upcoming.sort((a, b) => (a.scheduled_for ?? "").localeCompare(b.scheduled_for ?? ""));
+    return s;
+  };
+  const kc = sum(curr);
+  const kp = prev ? sum(prev) : null;
+
+  const now = new Date();
+  const upcoming = posts
+    .filter(p => !p.published_at && p.scheduled_for && new Date(p.scheduled_for) >= now)
+    .sort((a, b) => (a.scheduled_for ?? "").localeCompare(b.scheduled_for ?? ""));
   const next = upcoming[0] ?? null;
+
+  // A post is "waiting" while anything still blocks publication: text not yet
+  // approved, or (for image posts) the image not yet approved — image approval
+  // is a hard requirement of the publisher, not cosmetic.
+  const waiting = posts.flatMap(p => {
+    if (p.published_at || p.text_status === "Suspended") return [];
+    const textPending = !!p.text_status && p.text_status !== "Approved";
+    const imagePending = p.post_type === "Image" && p.image_status !== "Approved" && p.image_status !== "Published";
+    if (!textPending && !imagePending) return [];
+    return [{ post: p, reason: textPending ? (p.text_status ?? "New") : "Image pending" }];
+  });
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="font-display text-2xl text-navy">Overview</h1>
-        <p className="text-sm text-slate-500">Your content at a glance.</p>
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="font-display text-2xl text-navy">Overview</h1>
+          <p className="text-sm text-slate-500">Window: {range.label}</p>
+        </div>
+        <Suspense><DateRangePicker defaultKey="30d" /></Suspense>
       </header>
 
       <section className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <KpiCard label="Published posts" value={published} />
-        <KpiCard label="Impressions" value={impressions} accent />
-        <KpiCard label="Reactions" value={reactions} accent />
-        <KpiCard label="Comments" value={comments} accent />
+        <KpiCard label="Published posts" value={kc.posts} delta={kp ? kc.posts - kp.posts : undefined} />
+        <KpiCard label="Impressions" value={kc.impressions} delta={kp ? kc.impressions - kp.impressions : undefined} accent />
+        <KpiCard
+          label="Engagements"
+          value={kc.engagements}
+          delta={kp ? kc.engagements - kp.engagements : undefined}
+          accent
+          hint="Reactions + comments + reposts"
+        />
+        <KpiCard
+          label="ICP engagers"
+          value={kc.icp}
+          delta={kp ? kc.icp - kp.icp : undefined}
+          accent
+          hint={kc.sampled > 0 ? `${Math.round((kc.icp / kc.sampled) * 100)}% of sampled engagers` : undefined}
+        />
       </section>
 
       <section className="grid grid-cols-1 gap-6 md:grid-cols-2">
         <Card>
-          <CardHeader title="Next scheduled post" hint={next?.scheduled_for ? new Date(next.scheduled_for).toLocaleString() : undefined} />
-          <CardBody>
-            {next ? (
-              <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded-md bg-slate-50 p-3 text-xs leading-5 text-slate-700">{next.text_content ?? "(no text yet)"}</pre>
+          <CardHeader
+            title="Post performance"
+            hint="Published in this window, newest first"
+            action={next?.scheduled_for ? <Badge tone="slate">Next: {fmtDateTime(next.scheduled_for)}</Badge> : undefined}
+          />
+          <CardBody className="p-0">
+            {curr.length === 0 ? (
+              <EmptyState
+                title="No posts published in this window"
+                hint={next ? "The next post is already scheduled." : "Widen the date range to see older posts."}
+              />
             ) : (
-              <EmptyState title="Nothing scheduled" hint="New posts appear here once they are prepared." />
+              <ul className="divide-y">
+                {curr.slice(0, 8).map((p, i) => {
+                  const e = p.engagement;
+                  const row = (
+                    <>
+                      <div className="min-w-0">
+                        <div className="truncate text-sm text-slate-700">{(p.text_content ?? "").slice(0, 80) || "(no text)"}</div>
+                        <div className="mt-0.5 text-xs text-slate-400">{fmtDay(p.published_at!)}</div>
+                      </div>
+                      <div className="shrink-0 text-right text-xs text-slate-500">
+                        <div><span className="font-medium text-slate-700">{e?.impressions ?? 0}</span> impressions</div>
+                        <div>{(e?.reactions ?? 0) + (e?.comments ?? 0) + (e?.reposts ?? 0)} engagements · {e?.audience?.icp ?? 0} ICP</div>
+                      </div>
+                    </>
+                  );
+                  return (
+                    <li key={i}>
+                      {p.linkedin_url ? (
+                        <a href={p.linkedin_url} target="_blank" rel="noreferrer" className="flex items-center justify-between gap-3 px-5 py-3 hover:bg-slate-50">
+                          {row}
+                        </a>
+                      ) : (
+                        <div className="flex items-center justify-between gap-3 px-5 py-3">{row}</div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
             )}
           </CardBody>
         </Card>
@@ -338,13 +444,13 @@ async function ContentOverview() {
               <EmptyState title="All caught up" hint="Posts that need your approval will show up here." />
             ) : (
               <ul className="divide-y">
-                {waiting.slice(0, 6).map((p, i) => (
+                {waiting.slice(0, 6).map(({ post: p, reason }, i) => (
                   <li key={i} className="px-5 py-3">
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0 truncate text-sm text-slate-700">
                         {(p.text_content ?? "").slice(0, 90) || "(no text yet)"}
                       </div>
-                      <Badge tone="amber">{p.text_status ?? "New"}</Badge>
+                      <Badge tone="amber">{reason}</Badge>
                     </div>
                   </li>
                 ))}
