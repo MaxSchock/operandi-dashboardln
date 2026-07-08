@@ -13,7 +13,9 @@ import { createClient } from "@/lib/supabase/server";
  * content_engine_posts).
  */
 const ADMIN_ACTIONS = new Set(["approve", "suspend", "revise-text", "revise-image", "edit-text", "set-date", "upload-image"]);
-const OWNER_ACTIONS = new Set(["approve", "revise-text", "revise-image", "edit-text", "set-date", "upload-image"]);
+// suspend is owner-visible since 2026-07-08 (Cardeleine ask): a client suspending
+// their own post is a legitimate hard-negative signal.
+const OWNER_ACTIONS = new Set(["approve", "suspend", "revise-text", "revise-image", "edit-text", "set-date", "upload-image"]);
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: string; row: string }> }) {

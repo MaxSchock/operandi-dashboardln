@@ -62,7 +62,7 @@ function pct(v: string | number | null | undefined): string {
   return Number.isNaN(n) ? "—" : `${Math.round(n * 100)}%`;
 }
 
-function GeneratePanel({ slug, name }: { slug: string; name: string }) {
+function GeneratePanel({ slug, name, maxCount = 10 }: { slug: string; name: string; maxCount?: number }) {
   return (
     <Card>
       <CardHeader title={`Generate posts · ${name}`} hint="on demand" />
@@ -75,7 +75,7 @@ function GeneratePanel({ slug, name }: { slug: string; name: string }) {
               name="count"
               defaultValue={3}
               min={1}
-              max={10}
+              max={maxCount}
               className="w-16 rounded-md border bg-white px-2 py-1 text-sm text-slate-700"
             />
           </div>
@@ -161,10 +161,13 @@ export default async function ContentPage() {
       {sections.length === 0 ? (
         <Card><CardBody><EmptyState title="No content clients in scope" /></CardBody></Card>
       ) : (
-        sections.map(s => (
+        sections.map(s => {
+          const sectionIsOwn = ownSlug != null
+            && (s.posts[0]?.outreach_slug ?? s.analytics?.outreach_slug) === ownSlug;
+          return (
           <div key={s.slug} className="space-y-3">
-            {isAdmin && <GeneratePanel slug={s.slug} name={s.name} />}
-            <AnalyticsPanel name={s.name} a={s.analytics} posts={s.posts} showInternals={isAdmin} />
+            {(isAdmin || sectionIsOwn) && <GeneratePanel slug={s.slug} name={s.name} maxCount={isAdmin ? 10 : 6} />}
+            <AnalyticsPanel name={s.name} a={s.analytics} posts={s.posts} showInternals={isAdmin || sectionIsOwn} />
             <Card>
               <CardHeader title={`Posts · ${s.name}`} hint={`${s.posts.length} post${s.posts.length === 1 ? "" : "s"}`} />
               <CardBody className="space-y-4">
@@ -188,7 +191,8 @@ export default async function ContentPage() {
               </CardBody>
             </Card>
           </div>
-        ))
+          );
+        })
       )}
     </div>
   );
@@ -425,11 +429,9 @@ function PostCard({ r, isAdmin, ownSlug }: { r: CalendarRow; isAdmin: boolean; o
             </form>
           </details>
 
-          {isAdmin && (
-            <form action={`${act}?action=suspend`} method="post" className="ml-auto">
-              <button className="rounded-md bg-red-100 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-200">Suspend</button>
-            </form>
-          )}
+          <form action={`${act}?action=suspend`} method="post" className="ml-auto">
+            <button className="rounded-md bg-red-100 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-200">Suspend</button>
+          </form>
         </div>
       )}
     </div>

@@ -5,18 +5,50 @@ import { createClient } from "@/lib/supabase/server";
  * POST /api/admin/content-generate/:slug
  *   body (form or JSON): count (int), mode ("auto" | "manual"), topics (textarea, one per line)
  *
- * Operandi-admin only. Triggers on-demand post generation via the strategist proxy, which
- * forwards to the internal content-engine daemon. The daemon generates in the background,
- * so this returns fast; the new posts appear in the buffer (status New) on the next refresh.
+ * Operandi admins, or the client that owns the content slug. Ownership is resolved
+ * server-side exactly like content-post: content_calendar only returns rows mapped
+ * to the caller's client_slug via RLS, so finding the slug there proves ownership.
+ * Owners get a tighter budget: count clamped to 6 per request, and generation is
+ * refused once the unpublished buffer holds 18+ posts (6 weeks at 3/week).
+ *
+ * Triggers on-demand post generation via the strategist proxy, which forwards to the
+ * internal content-engine daemon. The daemon generates in the background, so this
+ * returns fast; the new posts appear in the buffer (status New) on the next refresh.
  */
+const OWNER_MAX_COUNT = 6;
+const OWNER_MAX_PENDING = 18;
+
 export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: string }> }) {
   const { slug } = await ctx.params;
 
   const sb = await createClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: "auth required" }, { status: 401 });
-  const { data: cu } = await sb.from("client_users").select("role").eq("user_id", user.id).maybeSingle();
-  if (cu?.role !== "operandi_admin") return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const { data: cu } = await sb.from("client_users").select("role, client_slug").eq("user_id", user.id).maybeSingle();
+  const isAdmin = cu?.role === "operandi_admin";
+
+  if (!isAdmin) {
+    if (!cu?.client_slug) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    const [{ data: cf }, { data: owned }] = await Promise.all([
+      sb.from("client_features").select("has_content").eq("client_slug", cu.client_slug).maybeSingle(),
+      sb.from("content_calendar").select("content_slug").eq("content_slug", slug).limit(1).maybeSingle(),
+    ]);
+    if (!cf?.has_content || !owned) {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    }
+    const { count: pending } = await sb
+      .from("content_calendar")
+      .select("post_id", { count: "exact", head: true })
+      .eq("content_slug", slug)
+      .is("published_at", null)
+      .neq("text_status", "Suspended");
+    if ((pending ?? 0) >= OWNER_MAX_PENDING) {
+      return NextResponse.json(
+        { error: `buffer full: ${pending} unpublished posts (max ${OWNER_MAX_PENDING}). Approve or suspend some first.` },
+        { status: 429 },
+      );
+    }
+  }
 
   // Build the body the daemon expects: { count, topics }.
   let count = 3;
@@ -34,7 +66,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: stri
     mode = String(fd.get("mode") ?? "auto");
     topicsRaw = String(fd.get("topics") ?? "");
   }
-  count = Math.max(1, Math.min(10, count)); // clamp 1..10
+  count = Math.max(1, Math.min(isAdmin ? 10 : OWNER_MAX_COUNT, count));
 
   const topics =
     mode === "manual"
