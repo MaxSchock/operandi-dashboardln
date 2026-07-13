@@ -336,7 +336,7 @@ function PostCard({ r, isAdmin, ownSlug }: { r: CalendarRow; isAdmin: boolean; o
   const schedDate = r.scheduled_for ? new Date(r.scheduled_for).toISOString().slice(0, 10) : "";
 
   return (
-    <div className="rounded-lg border p-4">
+    <div id={`post-${r.content_slug}-${r.sheet_row}`} className="scroll-mt-4 rounded-lg border p-4">
       <div className="flex flex-col gap-4 sm:flex-row">
         {img ? (
           <a href={img} target="_blank" rel="noreferrer" className="shrink-0">

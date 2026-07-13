@@ -88,5 +88,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: stri
     const detail = await res.text().catch(() => "");
     return NextResponse.json({ error: `action ${action} failed: ${res.status} ${detail.slice(0, 300)}` }, { status: 502 });
   }
-  return NextResponse.redirect(new URL(req.headers.get("referer") ?? "/content", req.url));
+  // 303 so the browser re-GETs the page, anchored on the card just acted on —
+  // otherwise every action lands the user back at the top of the list.
+  const back = new URL(req.headers.get("referer") ?? "/content", req.url);
+  back.hash = `post-${slug}-${row}`;
+  return NextResponse.redirect(back, 303);
 }
