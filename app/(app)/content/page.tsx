@@ -317,9 +317,16 @@ function Kpi({ label, value, accent, bad }: { label: string; value: string; acce
 }
 
 function PostCard({ r, isAdmin, ownSlug }: { r: CalendarRow; isAdmin: boolean; ownSlug: string | null }) {
-  const status = r.published_at ? "Published" : (r.text_status ?? "New");
   const img = r.image_url_imgbb || r.image_url_source;
   const textOnly = (r.post_type ?? "").toLowerCase() === "text";
+  // A post is only eligible for publish when BOTH sides are approved (publish.py
+  // skips image posts whose col F isn't Approved). Deriving the badge from
+  // text_status alone showed "Approved" on posts the publisher would never touch.
+  const textStatus = r.text_status ?? "New";
+  const imageApproved = textOnly || r.image_status === "Approved" || r.image_status === "Published";
+  const imagePending = !r.published_at && textStatus === "Approved" && !imageApproved;
+  const fullyApproved = textStatus === "Approved" && imageApproved;
+  const status = r.published_at ? "Published" : imagePending ? "Under review" : textStatus;
   const when = r.published_at || r.scheduled_for;
   const e = r.engagement;
   const aud = e?.audience ?? null;
@@ -348,8 +355,11 @@ function PostCard({ r, isAdmin, ownSlug }: { r: CalendarRow; isAdmin: boolean; o
           <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
             <Badge tone={STATUS_TONE[status] ?? "slate"}>{status}</Badge>
             {textOnly && <Badge tone="slate">Text-only</Badge>}
+            {imagePending && (
+              <Badge tone="amber">{r.image_status === "In progress" ? "image regenerating" : "new image — approve to publish"}</Badge>
+            )}
             {!r.published_at && r.scheduled_for && new Date(r.scheduled_for) < new Date() && (
-              <Badge tone="amber">⚠ overdue ({new Date(r.scheduled_for).toLocaleDateString()}) — publishes immediately if approved</Badge>
+              <Badge tone="amber">⚠ overdue ({new Date(r.scheduled_for).toLocaleDateString()}) — {fullyApproved ? "publishes on the next run" : "approve to publish"}</Badge>
             )}
             {r.pain_label && <Badge tone="electric">{r.pain_label.slice(0, 40)}</Badge>}
             {aud?.icp_pct !== undefined && aud?.total ? (
