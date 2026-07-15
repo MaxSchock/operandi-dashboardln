@@ -12,10 +12,12 @@ import { createClient } from "@/lib/supabase/server";
  * forwards to the internal content-engine daemon (writes the Google Sheet +
  * content_engine_posts).
  */
-const ADMIN_ACTIONS = new Set(["approve", "suspend", "revise-text", "revise-image", "edit-text", "set-date", "upload-image"]);
+const ADMIN_ACTIONS = new Set(["approve", "suspend", "revise-text", "revise-image", "edit-text", "set-date", "upload-image", "reset-published"]);
 // suspend is owner-visible since 2026-07-08 (Cardeleine ask): a client suspending
 // their own post is a legitimate hard-negative signal.
-const OWNER_ACTIONS = new Set(["approve", "suspend", "revise-text", "revise-image", "edit-text", "set-date", "upload-image"]);
+// reset-published is owner-visible too: it self-guards by verifying the LinkedIn post
+// is really gone before unlocking anything, so the owner can't duplicate a live post.
+const OWNER_ACTIONS = new Set(["approve", "suspend", "revise-text", "revise-image", "edit-text", "set-date", "upload-image", "reset-published"]);
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: string; row: string }> }) {

@@ -32,6 +32,7 @@ type CalendarRow = {
   scheduled_for: string | null;
   published_at: string | null;
   linkedin_url: string | null;
+  linkedin_deleted_at: string | null;
   engagement: Engagement;
 };
 
@@ -359,6 +360,7 @@ function PostCard({ r, isAdmin, ownSlug }: { r: CalendarRow; isAdmin: boolean; o
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
             <Badge tone={STATUS_TONE[status] ?? "slate"}>{status}</Badge>
+            {r.linkedin_deleted_at && <Badge tone="red">deleted on LinkedIn</Badge>}
             {textOnly && <Badge tone="slate">Text-only</Badge>}
             {imagePending && (
               <Badge tone="amber">{r.image_status === "In progress" ? "image regenerating" : "new image — approve to publish"}</Badge>
@@ -449,6 +451,18 @@ function PostCard({ r, isAdmin, ownSlug }: { r: CalendarRow; isAdmin: boolean; o
           <form action={`${act}?action=suspend`} method="post" className="ml-auto">
             <button className="rounded-md bg-red-100 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-200">Suspend</button>
           </form>
+        </div>
+      )}
+
+      {(isAdmin || isOwner) && status === "Published" && r.sheet_row != null && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
+          <form action={`${act}?action=reset-published`} method="post">
+            <button className="rounded-md bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800 hover:bg-amber-200">Fix &amp; republish</button>
+          </form>
+          <p className="text-[11px] text-slate-400">
+            Deleted this post on LinkedIn? This unlocks it for editing so you can fix and re-approve it.
+            It checks LinkedIn first and refuses while the post is still live.
+          </p>
         </div>
       )}
     </div>
