@@ -16,9 +16,19 @@ export function AutoRefresh({ intervalMs = 30_000 }: { intervalMs?: number }) {
   const router = useRouter();
   useEffect(() => {
     let id: ReturnType<typeof setInterval> | null = null;
+    // Skip the refresh while the user is mid-edit: typing in a field or having
+    // an expanded <details> form open. A refresh re-renders the server payload
+    // and the post list may have re-ordered or re-numbered underneath (the
+    // process daemon deletes suspended sheet rows and shifts the rest), which
+    // yanked the card away while clients were editing (Cardeleine, 2026-07-15).
+    const userIsEditing = () => {
+      const el = document.activeElement;
+      if (el && (el.tagName === "TEXTAREA" || el.tagName === "INPUT" || el.tagName === "SELECT")) return true;
+      return document.querySelector("details[open]") != null;
+    };
     const start = () => {
       if (id != null) return;
-      id = setInterval(() => router.refresh(), intervalMs);
+      id = setInterval(() => { if (!userIsEditing()) router.refresh(); }, intervalMs);
     };
     const stop = () => {
       if (id != null) { clearInterval(id); id = null; }

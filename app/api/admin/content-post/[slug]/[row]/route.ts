@@ -55,9 +55,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: stri
     payload = await req.json();
   } else {
     const fd = await req.formData();
-    if (action === "edit-text") payload = { text: String(fd.get("text") ?? "") };
-    else if (action === "revise-text" || action === "revise-image") payload = { notes: String(fd.get("notes") ?? "") };
-    else if (action === "set-date") payload = { date: String(fd.get("date") ?? ""), time: String(fd.get("time") ?? "") };
+    // Row-identity guard: the daemon refuses the action if this post_id no longer
+    // lives at this sheet_row (suspended-row cleanup shifts rows underneath users).
+    const pid = String(fd.get("post_id") ?? "");
+    if (pid) payload.post_id = pid;
+    if (action === "edit-text") payload = { ...payload, text: String(fd.get("text") ?? "") };
+    else if (action === "revise-text" || action === "revise-image") payload = { ...payload, notes: String(fd.get("notes") ?? "") };
+    else if (action === "set-date") payload = { ...payload, date: String(fd.get("date") ?? ""), time: String(fd.get("time") ?? "") };
     else if (action === "upload-image") {
       const file = fd.get("image");
       if (!(file instanceof File) || file.size === 0) {
@@ -67,7 +71,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: stri
         return NextResponse.json({ error: `image too large (max ${MAX_IMAGE_BYTES} bytes)` }, { status: 413 });
       }
       const b64 = Buffer.from(await file.arrayBuffer()).toString("base64");
-      payload = { image_b64: b64, filename: file.name || "upload.png" };
+      payload = { ...payload, image_b64: b64, filename: file.name || "upload.png" };
     }
   }
 

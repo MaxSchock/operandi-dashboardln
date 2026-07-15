@@ -400,10 +400,12 @@ function PostCard({ r, isAdmin, ownSlug }: { r: CalendarRow; isAdmin: boolean; o
       {canManage && (
         <div className="mt-3 flex flex-wrap items-start gap-2 border-t pt-3">
           <form action={`${act}?action=approve`} method="post">
+            <input type="hidden" name="post_id" value={r.post_id} />
             <button className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:opacity-90">Approve</button>
           </form>
 
           <form action={`${act}?action=set-date`} method="post" className="flex items-center gap-1.5">
+            <input type="hidden" name="post_id" value={r.post_id} />
             <input type="date" name="date" defaultValue={schedDate}
               className="rounded-md border bg-white px-2 py-1 text-xs text-slate-700" />
             <input type="time" name="time" defaultValue={schedTime}
@@ -414,6 +416,7 @@ function PostCard({ r, isAdmin, ownSlug }: { r: CalendarRow; isAdmin: boolean; o
           <details className="group">
             <summary className="cursor-pointer list-none rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200">Edit text</summary>
             <form action={`${act}?action=edit-text`} method="post" className="mt-2 w-80 max-w-full">
+            <input type="hidden" name="post_id" value={r.post_id} />
               <textarea name="text" defaultValue={r.text_content ?? ""} rows={6}
                 className="w-full rounded-md border bg-white p-2 text-xs leading-5" />
               <button className="mt-1 rounded-md bg-electric px-3 py-1 text-xs font-medium text-white hover:opacity-90">Save text</button>
@@ -423,6 +426,7 @@ function PostCard({ r, isAdmin, ownSlug }: { r: CalendarRow; isAdmin: boolean; o
           <details className="group">
             <summary className="cursor-pointer list-none rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200">Revise text</summary>
             <form action={`${act}?action=revise-text`} method="post" className="mt-2 w-80 max-w-full">
+            <input type="hidden" name="post_id" value={r.post_id} />
               <textarea name="notes" rows={3} placeholder="What to change about the text (the engine regenerates it)"
                 className="w-full rounded-md border bg-white p-2 text-xs leading-5" />
               <button className="mt-1 rounded-md bg-amber-500 px-3 py-1 text-xs font-medium text-white hover:opacity-90">Request text revision</button>
@@ -432,6 +436,7 @@ function PostCard({ r, isAdmin, ownSlug }: { r: CalendarRow; isAdmin: boolean; o
           <details className="group">
             <summary className="cursor-pointer list-none rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200">Revise image</summary>
             <form action={`${act}?action=revise-image`} method="post" className="mt-2 w-80 max-w-full">
+            <input type="hidden" name="post_id" value={r.post_id} />
               <textarea name="notes" rows={3} placeholder="What to change about the image (the engine regenerates it)"
                 className="w-full rounded-md border bg-white p-2 text-xs leading-5" />
               <button className="mt-1 rounded-md bg-amber-500 px-3 py-1 text-xs font-medium text-white hover:opacity-90">Request image revision</button>
@@ -441,6 +446,7 @@ function PostCard({ r, isAdmin, ownSlug }: { r: CalendarRow; isAdmin: boolean; o
           <details className="group">
             <summary className="cursor-pointer list-none rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200">Upload image</summary>
             <form action={`${act}?action=upload-image`} method="post" encType="multipart/form-data" className="mt-2 w-80 max-w-full space-y-1">
+            <input type="hidden" name="post_id" value={r.post_id} />
               <input type="file" name="image" accept="image/*" required
                 className="block w-full text-xs text-slate-600 file:mr-2 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1 file:text-xs file:font-medium file:text-slate-700 hover:file:bg-slate-200" />
               <p className="text-[11px] text-slate-400">Replaces the AI image. The post stays for review, click Approve to publish.</p>
@@ -449,6 +455,7 @@ function PostCard({ r, isAdmin, ownSlug }: { r: CalendarRow; isAdmin: boolean; o
           </details>
 
           <form action={`${act}?action=suspend`} method="post" className="ml-auto">
+            <input type="hidden" name="post_id" value={r.post_id} />
             <button className="rounded-md bg-red-100 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-200">Suspend</button>
           </form>
         </div>
@@ -457,6 +464,7 @@ function PostCard({ r, isAdmin, ownSlug }: { r: CalendarRow; isAdmin: boolean; o
       {(isAdmin || isOwner) && status === "Published" && r.sheet_row != null && (
         <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
           <form action={`${act}?action=reset-published`} method="post">
+            <input type="hidden" name="post_id" value={r.post_id} />
             <button className="rounded-md bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800 hover:bg-amber-200">Fix &amp; republish</button>
           </form>
           <p className="text-[11px] text-slate-400">
