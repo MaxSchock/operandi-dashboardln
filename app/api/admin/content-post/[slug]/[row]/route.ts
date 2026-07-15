@@ -90,13 +90,19 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: stri
   } catch (e) {
     return NextResponse.json({ error: `strategist unreachable: ${String(e)}` }, { status: 502 });
   }
-  if (!res.ok) {
-    const detail = await res.text().catch(() => "");
-    return NextResponse.json({ error: `action ${action} failed: ${res.status} ${detail.slice(0, 300)}` }, { status: 502 });
-  }
   // 303 so the browser re-GETs the page, anchored on the card just acted on —
   // otherwise every action lands the user back at the top of the list.
   const back = new URL(req.headers.get("referer") ?? "/content", req.url);
   back.hash = `post-${slug}-${row}`;
+  if (!res.ok) {
+    // Failures go back to the page too (raw JSON is unreadable for clients).
+    // The daemon's reason travels in ?actionError and renders as a banner.
+    const detail = await res.text().catch(() => "");
+    let reason = detail;
+    try { reason = JSON.parse(detail).detail ?? detail; } catch { /* keep raw */ }
+    back.searchParams.set("actionError", String(reason).slice(0, 220));
+    return NextResponse.redirect(back, 303);
+  }
+  back.searchParams.delete("actionError");
   return NextResponse.redirect(back, 303);
 }

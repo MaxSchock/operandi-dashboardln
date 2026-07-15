@@ -113,10 +113,11 @@ function GeneratePanel({ slug, name, maxCount = 10 }: { slug: string; name: stri
   );
 }
 
-export default async function ContentPage() {
+export default async function ContentPage({ searchParams }: { searchParams?: { actionError?: string } }) {
   const sb = await createClient();
   const scope = await getClientScope();
   const tier = await getTier();
+  const actionError = (searchParams?.actionError ?? "").slice(0, 220);
 
   const [{ data: calData }, { data: anData }] = await Promise.all([
     sb.from("content_calendar").select("*").order("scheduled_for", { ascending: false }).limit(500),
@@ -150,6 +151,11 @@ export default async function ContentPage() {
 
   return (
     <div className="space-y-6">
+      {actionError && (
+        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <span className="font-medium">That didn&apos;t work: </span>{actionError}
+        </div>
+      )}
       <header>
         <h1 className="font-display text-2xl text-navy">Content</h1>
         <p className="text-sm text-slate-500">
