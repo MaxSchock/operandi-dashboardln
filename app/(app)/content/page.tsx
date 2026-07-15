@@ -334,6 +334,11 @@ function PostCard({ r, isAdmin, ownSlug }: { r: CalendarRow; isAdmin: boolean; o
   const canManage = (isAdmin || isOwner) && status !== "Published" && r.sheet_row != null;
   const act = `/api/admin/content-post/${r.content_slug}/${r.sheet_row}`;
   const schedDate = r.scheduled_for ? new Date(r.scheduled_for).toISOString().slice(0, 10) : "";
+  // The daemon reads the time as Europe/Berlin local (sheet post_date is naive local),
+  // so the prefill must be Berlin too — an ISO/UTC slice would shift what gets saved back.
+  const schedTime = r.scheduled_for
+    ? new Date(r.scheduled_for).toLocaleTimeString("en-GB", { timeZone: "Europe/Berlin", hour: "2-digit", minute: "2-digit", hour12: false })
+    : "";
 
   return (
     <div id={`post-${r.content_slug}-${r.sheet_row}`} className="scroll-mt-4 rounded-lg border p-4">
@@ -398,6 +403,8 @@ function PostCard({ r, isAdmin, ownSlug }: { r: CalendarRow; isAdmin: boolean; o
 
           <form action={`${act}?action=set-date`} method="post" className="flex items-center gap-1.5">
             <input type="date" name="date" defaultValue={schedDate}
+              className="rounded-md border bg-white px-2 py-1 text-xs text-slate-700" />
+            <input type="time" name="time" defaultValue={schedTime}
               className="rounded-md border bg-white px-2 py-1 text-xs text-slate-700" />
             <button className="rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200">Save date</button>
           </form>
