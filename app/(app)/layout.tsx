@@ -3,6 +3,7 @@ import Link from "next/link";
 import { LayoutDashboard, Users, Inbox, Sparkles, FileText, Activity, Settings, LogOut, Shield, MessageSquare, CalendarDays, Lock, Clapperboard } from "lucide-react";
 import { createClient, createPublicClient } from "@/lib/supabase/server";
 import { SignOutButton } from "@/components/sign-out-button";
+import { PostHogIdentify } from "@/components/posthog-init";
 import { ClientScopeSelector } from "@/components/client-scope-selector";
 import { MobileNav, type MobileNavItem } from "@/components/mobile-nav";
 import { AutoRefresh } from "@/components/auto-refresh";
@@ -104,10 +105,16 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             {cu?.display_name ?? u.email}
           </div>
           <SignOutButton />
+          {process.env.NEXT_PUBLIC_POSTHOG_KEY && (
+            <p className="mt-2 text-[10px] leading-4 text-slate-400">
+              We collect anonymized usage analytics and session data (inputs masked) to improve the product.
+            </p>
+          )}
         </div>
       </aside>
 
       <main className="flex-1 overflow-x-hidden">
+        <PostHogIdentify email={cu?.email ?? u.email ?? null} clientSlug={cu?.client_slug ?? null} role={cu?.role ?? null} />
         <AutoRefresh intervalMs={30000} />
         <MobileNav
           items={mobileItems}
