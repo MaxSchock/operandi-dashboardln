@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { LayoutDashboard, Users, Inbox, Sparkles, FileText, Activity, Settings, LogOut, Shield, MessageSquare, CalendarDays, Lock, Clapperboard } from "lucide-react";
+import { LayoutDashboard, Users, Inbox, Sparkles, FileText, Activity, Settings, LogOut, Shield, MessageSquare, CalendarDays, Lock, Clapperboard, Share2 } from "lucide-react";
 import { createClient, createPublicClient } from "@/lib/supabase/server";
 import { SignOutButton } from "@/components/sign-out-button";
 import { PostHogIdentify } from "@/components/posthog-init";
@@ -61,6 +61,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     { href: "/leads",     label: "Leads",     icon: Users,           key: "leads",      show: true,  locked },
     { href: "/engagement", label: "Warm DMs", icon: MessageSquare,   key: "engagement", show: true,  locked },
     { href: "/content",   label: "Content",   icon: CalendarDays,    key: "content",    show: true,  locked: false },
+    { href: "/distribution", label: "Distribution", icon: Share2,     key: "distribution", show: isAdmin, locked: false },
     { href: "/videos",    label: "Videos",    icon: Clapperboard,    key: "videos",     show: tier.videoEnabled, locked: false },
     { href: "/activity",  label: "Activity",  icon: Activity,        key: "activity",   show: tier.hasOutreach, locked: false },
     { href: "/templates", label: "Templates", icon: FileText,        key: "templates",  show: tier.hasOutreach, locked: false },
