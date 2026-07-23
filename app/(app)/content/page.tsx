@@ -340,9 +340,12 @@ function PostCard({ r, isAdmin, ownSlug }: { r: CalendarRow; isAdmin: boolean; o
   const isOwner = ownSlug != null && r.outreach_slug === ownSlug;
   const canManage = (isAdmin || isOwner) && status !== "Published" && r.sheet_row != null;
   const act = `/api/admin/content-post/${r.content_slug}/${r.sheet_row}`;
-  const schedDate = r.scheduled_for ? new Date(r.scheduled_for).toISOString().slice(0, 10) : "";
-  // The daemon reads the time as Europe/Berlin local (sheet post_date is naive local),
-  // so the prefill must be Berlin too — an ISO/UTC slice would shift what gets saved back.
+  // Both date and time prefill must be Berlin: the daemon reads post_date as naive
+  // Europe/Berlin local, and (since Approve now round-trips the picker) an ISO/UTC date
+  // slice could land the wrong calendar day for posts scheduled near midnight.
+  const schedDate = r.scheduled_for
+    ? new Date(r.scheduled_for).toLocaleDateString("en-CA", { timeZone: "Europe/Berlin" })
+    : "";
   const schedTime = r.scheduled_for
     ? new Date(r.scheduled_for).toLocaleTimeString("en-GB", { timeZone: "Europe/Berlin", hour: "2-digit", minute: "2-digit", hour12: false })
     : "";
@@ -405,18 +408,20 @@ function PostCard({ r, isAdmin, ownSlug }: { r: CalendarRow; isAdmin: boolean; o
 
       {canManage && (
         <div className="mt-3 flex flex-wrap items-start gap-2 border-t pt-3">
-          <form action={`${act}?action=approve`} method="post">
-            <input type="hidden" name="post_id" value={r.post_id} />
-            <button className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:opacity-90">Approve</button>
-          </form>
-
-          <form action={`${act}?action=set-date`} method="post" className="flex items-center gap-1.5">
+          {/* The date/time picker and Approve share ONE form so the schedule shown in
+              the picker is submitted WITH the approval. They used to be two separate
+              forms, so editing the picker and clicking Approve (without first clicking
+              "Save date") silently dropped the new date and the post kept its old slot
+              (Zayd, 2026-07-22). "Save date" reschedules without approving. */}
+          <form action={`${act}?action=approve`} method="post" className="flex flex-wrap items-center gap-1.5">
             <input type="hidden" name="post_id" value={r.post_id} />
             <input type="date" name="date" defaultValue={schedDate}
               className="rounded-md border bg-white px-2 py-1 text-xs text-slate-700" />
             <input type="time" name="time" defaultValue={schedTime}
               className="rounded-md border bg-white px-2 py-1 text-xs text-slate-700" />
-            <button className="rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200">Save date</button>
+            <button className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:opacity-90">Approve</button>
+            <button formAction={`${act}?action=set-date`}
+              className="rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200">Save date</button>
           </form>
 
           <details className="group">

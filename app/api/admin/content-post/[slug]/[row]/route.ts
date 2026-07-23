@@ -61,7 +61,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: stri
     if (pid) payload.post_id = pid;
     if (action === "edit-text") payload = { ...payload, text: String(fd.get("text") ?? "") };
     else if (action === "revise-text" || action === "revise-image") payload = { ...payload, notes: String(fd.get("notes") ?? "") };
-    else if (action === "set-date") payload = { ...payload, date: String(fd.get("date") ?? ""), time: String(fd.get("time") ?? "") };
+    else if (action === "set-date" || action === "approve") payload = { ...payload, date: String(fd.get("date") ?? ""), time: String(fd.get("time") ?? "") };
     else if (action === "upload-image") {
       const file = fd.get("image");
       if (!(file instanceof File) || file.size === 0) {
@@ -78,31 +78,53 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: stri
   const base = process.env.STRATEGIST_BASE_URL;
   const token = process.env.STRATEGIST_WEBHOOK_TOKEN;
   if (!base) return NextResponse.json({ error: "STRATEGIST_BASE_URL not set" }, { status: 500 });
-
-  let res: Response;
-  try {
-    res = await fetch(`${base.replace(/\/$/, "")}/content/post/${encodeURIComponent(slug)}/${encodeURIComponent(row)}/${action}`, {
-      method: "POST",
-      headers: { "content-type": "application/json", ...(token ? { "x-webhook-token": token } : {}) },
-      body: JSON.stringify(payload),
-      cache: "no-store",
+  const daemon = base.replace(/\/$/, "");
+  const headers = { "content-type": "application/json", ...(token ? { "x-webhook-token": token } : {}) };
+  const call = (act: string, pl: Record<string, string>) =>
+    fetch(`${daemon}/content/post/${encodeURIComponent(slug)}/${encodeURIComponent(row)}/${act}`, {
+      method: "POST", headers, body: JSON.stringify(pl), cache: "no-store",
     });
-  } catch (e) {
-    return NextResponse.json({ error: `strategist unreachable: ${String(e)}` }, { status: 502 });
-  }
+
   // 303 so the browser re-GETs the page, anchored on the card just acted on —
   // otherwise every action lands the user back at the top of the list.
   const back = new URL(req.headers.get("referer") ?? "/content", req.url);
   back.hash = `post-${slug}-${row}`;
-  if (!res.ok) {
-    // Failures go back to the page too (raw JSON is unreadable for clients).
-    // The daemon's reason travels in ?actionError and renders as a banner.
+  // Failures go back to the page too (raw JSON is unreadable for clients).
+  // The daemon's reason travels in ?actionError and renders as a banner.
+  const fail = async (res: Response) => {
     const detail = await res.text().catch(() => "");
     let reason = detail;
     try { reason = JSON.parse(detail).detail ?? detail; } catch { /* keep raw */ }
     back.searchParams.set("actionError", String(reason).slice(0, 220));
     return NextResponse.redirect(back, 303);
+  };
+
+  // The Approve form carries the schedule picker. Persist the date FIRST (its own
+  // endpoint), so the date/time the user sees when clicking Approve is what goes live
+  // — the picker and Approve used to be separate forms and the edit was dropped
+  // (Zayd, 2026-07-22). Skipped when the post has no date yet (empty picker): approve
+  // alone keeps the old behavior. If set-date fails the post is left un-approved (safe,
+  // still under review) with the reason shown.
+  if (action === "approve" && (payload.date ?? "").trim()) {
+    let sd: Response;
+    try {
+      sd = await call("set-date", {
+        ...(payload.post_id ? { post_id: payload.post_id } : {}),
+        date: payload.date, time: payload.time ?? "",
+      });
+    } catch (e) {
+      return NextResponse.json({ error: `strategist unreachable: ${String(e)}` }, { status: 502 });
+    }
+    if (!sd.ok) return fail(sd);
   }
+
+  let res: Response;
+  try {
+    res = await call(action, payload);
+  } catch (e) {
+    return NextResponse.json({ error: `strategist unreachable: ${String(e)}` }, { status: 502 });
+  }
+  if (!res.ok) return fail(res);
   back.searchParams.delete("actionError");
   return NextResponse.redirect(back, 303);
 }
