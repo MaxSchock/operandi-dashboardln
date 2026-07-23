@@ -101,8 +101,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: stri
 
   // The Approve form carries the schedule picker. Persist the date FIRST (its own
   // endpoint), so the date/time the user sees when clicking Approve is what goes live
-  // — the picker and Approve used to be separate forms and the edit was dropped
-  // (Zayd, 2026-07-22). Skipped when the post has no date yet (empty picker): approve
+  // (the picker and Approve used to be separate forms and the edit was dropped,
+  // Zayd 2026-07-22). Skipped when the post has no date yet (empty picker): approve
   // alone keeps the old behavior. If set-date fails the post is left un-approved (safe,
   // still under review) with the reason shown.
   if (action === "approve" && (payload.date ?? "").trim()) {
