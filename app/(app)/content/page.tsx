@@ -419,9 +419,9 @@ function PostCard({ r, isAdmin, ownSlug }: { r: CalendarRow; isAdmin: boolean; o
               className="rounded-md border bg-white px-2 py-1 text-xs text-slate-700" />
             <input type="time" name="time" defaultValue={schedTime}
               className="rounded-md border bg-white px-2 py-1 text-xs text-slate-700" />
-            <button className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:opacity-90">Approve</button>
+            <button className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:opacity-90">Approve &amp; schedule</button>
             <button formAction={`${act}?action=set-date`}
-              className="rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200">Save date</button>
+              className="rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200">Save date only</button>
           </form>
 
           <details className="group">
