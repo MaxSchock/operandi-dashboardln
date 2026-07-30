@@ -12,16 +12,23 @@ type CookieToSet = { name: string; value: string; options: CookieOptions };
  * NextResponse object that is returned. The previous version that
  * used the shared cookieStore helper failed for exactly this reason.
  *
+ * Also accepts ?token_hash=&type=, the server-side form used by links minted
+ * with the admin generate_link API. Those are how we hand someone access
+ * without going through their inbox; the plain action_link cannot work here
+ * because it comes back with the tokens in the URL fragment, which never
+ * reaches the server.
+ *
  * Edge cases handled:
- *  - No ?code in URL → bounce to /login?error=no_code (probably an
- *    implicit-flow email; we force PKCE in the browser client).
- *  - exchangeCodeForSession fails → bounce to /login?error=<msg>.
+ *  - Neither ?code nor ?token_hash → bounce to /login?error=no_code.
+ *  - exchange/verify fails → bounce to /login?error=<msg>.
  *  - `next` query param not starting with "/" → coerce to /dashboard
  *    so we never become an open redirect.
  */
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
+  const tokenHash = searchParams.get("token_hash");
+  const otpType = searchParams.get("type") ?? "magiclink";
   const errorParam = searchParams.get("error_description") || searchParams.get("error");
   let next = searchParams.get("next") ?? "/dashboard";
   if (!next.startsWith("/")) next = "/dashboard";
@@ -30,7 +37,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${origin}/login?error=${encodeURIComponent(errorParam)}`);
   }
 
-  if (!code) {
+  if (!code && !tokenHash) {
     return NextResponse.redirect(`${origin}/login?error=no_code`);
   }
 
@@ -51,9 +58,14 @@ export async function GET(request: NextRequest) {
     },
   );
 
-  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  const { error } = code
+    ? await supabase.auth.exchangeCodeForSession(code)
+    : await supabase.auth.verifyOtp({
+        token_hash: tokenHash!,
+        type: otpType as "magiclink" | "recovery" | "invite" | "email",
+      });
   if (error) {
-    console.error("[callback] exchangeCodeForSession failed:", error.message);
+    console.error("[callback] sign-in failed:", error.message);
     return NextResponse.redirect(
       `${origin}/login?error=${encodeURIComponent(error.message)}`,
     );
