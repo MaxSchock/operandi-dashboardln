@@ -40,7 +40,7 @@ const STAGES = ["all", "pre_contact", "engaged_post", "invited", "accepted", "me
 
 export default async function LeadsPage({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
   const tier = await getTier();
-  if (!tier.hasOutreach) {
+  if (!tier.hasLeads) {
     return (
       <div className="space-y-6">
         <header>

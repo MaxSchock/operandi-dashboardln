@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 export type ClientFeatures = {
   client_slug: string;
   has_outreach: boolean;
+  has_engagement: boolean;
   has_content: boolean;
   video_enabled: boolean;
   video_weekly_quota: number;
@@ -20,11 +21,21 @@ export type Tier = {
   displayName: string | null;
   email: string | null;
   features: ClientFeatures | null;
-  /** Outreach pages (Leads, Warm DMs, Activity, Templates) unlocked. */
+  /** Full outreach product (Activity, Templates, and the cold funnel behind Leads). */
   hasOutreach: boolean;
+  /** Warm DMs unlocked on its own, for content clients who work their engagers. */
+  hasEngagement: boolean;
+  /** Leads visible: the full product, or the person info behind a warm DM. */
+  hasLeads: boolean;
+  /** May approve, reject, edit or send from a proposal (admins and client operators). */
+  canOperate: boolean;
   /** Videos section unlocked (admins always; clients per feature flag). */
   videoEnabled: boolean;
 };
+
+/** Client-side role allowed to act on its OWN client_slug. Server routes still check
+ *  that the target row belongs to this user's client before writing. */
+export const CLIENT_OPERATOR_ROLE = "client_operator";
 
 /**
  * Resolve the current user's role + product features server-side.
@@ -39,7 +50,8 @@ export async function getTier(): Promise<Tier> {
     return {
       userId: null, isAdmin: false, role: null, clientSlug: null,
       displayName: null, email: null, features: null,
-      hasOutreach: true, videoEnabled: false,
+      hasOutreach: true, hasEngagement: true, hasLeads: true,
+      canOperate: false, videoEnabled: false,
     };
   }
 
@@ -61,6 +73,11 @@ export async function getTier(): Promise<Tier> {
     features = (cf as ClientFeatures | null) ?? null;
   }
 
+  const hasOutreach = isAdmin || (features ? features.has_outreach : true);
+  // has_outreach implies engagement: clients on the full product keep the Warm DM page
+  // they already had, and only the new flag opens it for content-only clients.
+  const hasEngagement = hasOutreach || (features?.has_engagement ?? false);
+
   return {
     userId: user.id,
     isAdmin,
@@ -69,7 +86,10 @@ export async function getTier(): Promise<Tier> {
     displayName: cu?.display_name ?? null,
     email: cu?.email ?? user.email ?? null,
     features,
-    hasOutreach: isAdmin || (features ? features.has_outreach : true),
+    hasOutreach,
+    hasEngagement,
+    hasLeads: hasOutreach || hasEngagement,
+    canOperate: isAdmin || cu?.role === CLIENT_OPERATOR_ROLE,
     videoEnabled: isAdmin || (features?.video_enabled ?? false),
   };
 }

@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 export default async function LeadDetail({ params }: { params: Promise<{ id: string }> }) {
   const tier = await getTier();
-  if (!tier.hasOutreach) redirect("/leads");
+  if (!tier.hasLeads) redirect("/leads");
 
   const { id } = await params;
   const leadId = Number(id);

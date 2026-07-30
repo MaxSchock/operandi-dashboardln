@@ -55,11 +55,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // Locked items stay visible (they render an upsell page); hidden items are
   // simply absent for content-only clients. Server guards on each page are the
   // real enforcement; this only shapes the nav.
-  const locked = !tier.hasOutreach;
   const nav = [
     { href: "/dashboard", label: "Overview",  icon: LayoutDashboard, key: "dashboard",  show: true,  locked: false },
-    { href: "/leads",     label: "Leads",     icon: Users,           key: "leads",      show: true,  locked },
-    { href: "/engagement", label: "Warm DMs", icon: MessageSquare,   key: "engagement", show: true,  locked },
+    { href: "/leads",     label: "Leads",     icon: Users,           key: "leads",      show: true,  locked: !tier.hasLeads },
+    { href: "/engagement", label: "Warm DMs", icon: MessageSquare,   key: "engagement", show: true,  locked: !tier.hasEngagement },
     { href: "/content",   label: "Content",   icon: CalendarDays,    key: "content",    show: true,  locked: false },
     { href: "/distribution", label: "Distribution", icon: Share2,     key: "distribution", show: isAdmin, locked: false },
     { href: "/videos",    label: "Videos",    icon: Clapperboard,    key: "videos",     show: tier.videoEnabled, locked: false },

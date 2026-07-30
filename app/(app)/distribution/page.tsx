@@ -47,7 +47,10 @@ const SOURCE_LABEL: Record<string, string> = {
 
 export default async function DistributionPage({ searchParams }: { searchParams?: { actionError?: string } }) {
   const tier = await getTier();
-  const canSee = tier.isAdmin || (tier.features?.has_content ?? false);
+  // Group curation is an internal tool: the sidebar has always been admin-only, but the
+  // page itself let any content client in by typing the URL. Now that clients have real
+  // logins, the guard matches the nav.
+  const canSee = tier.isAdmin;
   if (!canSee) {
     return (
       <div className="space-y-6">
