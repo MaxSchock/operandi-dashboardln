@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, Users, Inbox, Sparkles, FileText, Activity,
-  Shield, MessageSquare, CalendarDays, Menu, X, Lock, Clapperboard, Share2,
+  Shield, MessageSquare, CalendarDays, Menu, X, Lock, Clapperboard, Share2, Phone,
 } from "lucide-react";
 import { ClientScopeSelector } from "@/components/client-scope-selector";
 import { SignOutButton } from "@/components/sign-out-button";
@@ -13,6 +13,7 @@ import { SignOutButton } from "@/components/sign-out-button";
 const ICONS = {
   dashboard: LayoutDashboard,
   leads: Users,
+  calling: Phone,
   engagement: MessageSquare,
   content: CalendarDays,
   distribution: Share2,

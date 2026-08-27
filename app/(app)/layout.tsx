@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { LayoutDashboard, Users, Inbox, Sparkles, FileText, Activity, Settings, LogOut, Shield, MessageSquare, CalendarDays, Lock, Clapperboard, Share2 } from "lucide-react";
+import { LayoutDashboard, Users, Inbox, Sparkles, FileText, Activity, Settings, LogOut, Shield, MessageSquare, CalendarDays, Lock, Clapperboard, Share2, Phone } from "lucide-react";
 import { createClient, createPublicClient } from "@/lib/supabase/server";
 import { SignOutButton } from "@/components/sign-out-button";
 import { PostHogIdentify } from "@/components/posthog-init";
@@ -58,6 +58,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const nav = [
     { href: "/dashboard", label: "Overview",  icon: LayoutDashboard, key: "dashboard",  show: true,  locked: false },
     { href: "/leads",     label: "Leads",     icon: Users,           key: "leads",      show: true,  locked: !tier.hasLeads },
+    { href: "/calling",   label: "Calling",   icon: Phone,           key: "calling",    show: tier.hasLeads && tier.canOperate, locked: false },
     { href: "/engagement", label: "Warm DMs", icon: MessageSquare,   key: "engagement", show: true,  locked: !tier.hasEngagement },
     { href: "/content",   label: "Content",   icon: CalendarDays,    key: "content",    show: true,  locked: false },
     { href: "/distribution", label: "Distribution", icon: Share2,     key: "distribution", show: isAdmin, locked: false },
