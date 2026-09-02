@@ -106,11 +106,12 @@ export function VideoWizard({
           <option value="broll">Scenes: your uploaded clips plus AI footage, narrator voiceover, captions (recommended)</option>
           <option value="typography">Text-driven: animated text cards, music, no voice</option>
           <option value="talking_head" disabled={!voiceAvailable}>
-            Talking head: you speaking to camera{voiceAvailable ? "" : " (needs a recorded voice consent, ask us to set it up)"}
+            Talking head: you speaking to camera{voiceAvailable ? "" : " (locked: your voice clone is not connected yet)"}
           </option>
         </select>
         <p className="mt-1 text-xs text-slate-500">
           Real footage performs best on LinkedIn: if you upload clips below, we build the video around them.
+          {!voiceAvailable && " Talking head needs your voice clone connected first (write to us and we set it up). In the meantime, upload a clip of yourself talking and pick Scenes: the storyboard builds the video around your own footage."}
         </p>
       </Field>
 
