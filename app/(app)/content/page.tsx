@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardBody, Badge, EmptyState } from "@/components/ui";
 import { getClientScope } from "@/lib/scope";
 import { getTier } from "@/lib/tier";
+import { CopyButton } from "@/components/copy-button";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -49,6 +50,22 @@ type AnalyticsRow = {
   hard_negatives: string[] | null;
   exemplar_posts: { id: string; text: string; topic: string; score: number }[] | null;
   computed_at: string | null;
+};
+
+type CommentDraftRow = {
+  id: string;
+  content_slug: string;
+  content_name: string | null;
+  outreach_slug: string | null;
+  post_id: string | null;
+  sheet_row: number | null;
+  linkedin_url: string | null;
+  comment_author: string | null;
+  comment_text: string | null;
+  comment_type: string | null;
+  reply_text: string | null;
+  action: string;
+  created_at: string;
 };
 
 const STATUS_TONE: Record<string, "slate" | "green" | "amber" | "red" | "electric"> = {
@@ -119,12 +136,17 @@ export default async function ContentPage({ searchParams }: { searchParams?: { a
   const tier = await getTier();
   const actionError = (searchParams?.actionError ?? "").slice(0, 220);
 
-  const [{ data: calData }, { data: anData }] = await Promise.all([
+  const [{ data: calData }, { data: anData }, { data: draftData }] = await Promise.all([
     sb.from("content_calendar").select("*").order("scheduled_for", { ascending: false }).limit(500),
     sb.from("content_analytics").select("*"),
+    // Comment replies drafted by the engine but never posted by it: since 02-09-2026 a
+    // person copies them into LinkedIn (tool-posted replies count as automated comments).
+    sb.from("content_comment_drafts").select("*").in("action", ["draft", "draft_sent"])
+      .order("created_at", { ascending: false }).limit(200),
   ]);
   let posts = (calData ?? []) as CalendarRow[];
   let analytics = (anData ?? []) as AnalyticsRow[];
+  let drafts = (draftData ?? []) as CommentDraftRow[];
   const isAdmin = tier.isAdmin;
   // Clients with the content product manage their own posts (approve, edit,
   // revisions, image, date). Suspend and generation stay admin-only.
@@ -133,6 +155,7 @@ export default async function ContentPage({ searchParams }: { searchParams?: { a
   if (scope) {
     posts = posts.filter(p => p.outreach_slug === scope);
     analytics = analytics.filter(a => a.outreach_slug === scope);
+    drafts = drafts.filter(d => d.outreach_slug === scope);
   }
 
   const postsByClient = new Map<string, CalendarRow[]>();
@@ -175,6 +198,9 @@ export default async function ContentPage({ searchParams }: { searchParams?: { a
           <div key={s.slug} className="space-y-3">
             {(isAdmin || sectionIsOwn) && <GeneratePanel slug={s.slug} name={s.name} maxCount={isAdmin ? 10 : 6} />}
             <AnalyticsPanel name={s.name} a={s.analytics} posts={s.posts} showInternals={isAdmin || sectionIsOwn} />
+            {(isAdmin || sectionIsOwn) && (
+              <CommentDraftsPanel slug={s.slug} name={s.name} drafts={drafts.filter(d => d.content_slug === s.slug)} />
+            )}
             <Card>
               <CardHeader title={`Posts · ${s.name}`} hint={`${s.posts.length} post${s.posts.length === 1 ? "" : "s"}`} />
               <CardBody className="space-y-4">
@@ -202,6 +228,48 @@ export default async function ContentPage({ searchParams }: { searchParams?: { a
         })
       )}
     </div>
+  );
+}
+
+function CommentDraftsPanel({ slug, name, drafts }: { slug: string; name: string; drafts: CommentDraftRow[] }) {
+  return (
+    <Card>
+      <div id={`comments-${slug}`} className="scroll-mt-4" />
+      <CardHeader
+        title={`Comment replies to post by hand · ${name}`}
+        hint={drafts.length === 0 ? "nothing waiting" : `${drafts.length} waiting`}
+      />
+      <CardBody className="space-y-3">
+        <p className="text-xs text-slate-500">
+          The engine drafts a reply for each new comment but does not post it (LinkedIn treats tool-posted replies as
+          automated). Copy the draft, paste it under the comment on LinkedIn, then mark it done. Edit freely before posting.
+        </p>
+        {drafts.length === 0 ? (
+          <EmptyState title="No comments waiting for a reply" />
+        ) : drafts.map(d => (
+          <div key={d.id} className="rounded-lg border p-3 space-y-2">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+              <span className="font-medium text-slate-700">{d.comment_author || "Unknown"}</span>
+              {d.comment_type && <Badge tone="slate">{d.comment_type}</Badge>}
+              <span>{new Date(d.created_at).toLocaleString("de-DE", { timeZone: "Europe/Berlin", dateStyle: "short", timeStyle: "short" })}</span>
+              {d.linkedin_url && (
+                <a href={d.linkedin_url} target="_blank" rel="noreferrer" className="text-electric hover:underline">
+                  open post{d.sheet_row != null ? ` (row ${d.sheet_row})` : ""}
+                </a>
+              )}
+            </div>
+            <blockquote className="border-l-2 border-slate-200 pl-3 text-sm text-slate-600 whitespace-pre-wrap">{d.comment_text}</blockquote>
+            <div className="rounded-md bg-slate-50 p-2 text-sm text-slate-800 whitespace-pre-wrap">{d.reply_text}</div>
+            <div className="flex items-center gap-2">
+              <CopyButton text={d.reply_text ?? ""} label="Copy reply" />
+              <form action={`/api/admin/content-comment/${d.id}?action=done`} method="post">
+                <button className="rounded-md bg-electric px-2 py-1 text-xs font-medium text-white hover:opacity-90">Mark as posted</button>
+              </form>
+            </div>
+          </div>
+        ))}
+      </CardBody>
+    </Card>
   );
 }
 
