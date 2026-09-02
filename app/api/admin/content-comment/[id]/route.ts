@@ -24,14 +24,19 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (!owned) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   const svc = serviceRoleClient();
-  const { error } = await svc.from("content_engine_comment_replies")
+  // select() back: a conditional update that matched nothing returns error=null, and
+  // reporting that as success hides a lost click (Codex, 2026-09-02).
+  const { data: updated, error } = await svc.from("content_engine_comment_replies")
     .update({ action: action === "done" ? "draft_done" : "draft" })
     .eq("id", id)
-    .in("action", ["draft", "draft_sent", "draft_done"]);
+    .in("action", ["draft", "draft_sent", "draft_done"])
+    .select("id");
   const back = new URL(req.headers.get("referer") ?? "/content", req.url);
   back.hash = `comments-${owned.content_slug}`;
   if (error) {
     back.searchParams.set("actionError", `comment draft: ${error.message}`.slice(0, 220));
+  } else if (!updated || updated.length === 0) {
+    back.searchParams.set("actionError", "That draft changed while you were looking at it. Reload the page.");
   } else {
     back.searchParams.delete("actionError");
   }

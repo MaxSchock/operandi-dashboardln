@@ -136,7 +136,7 @@ export default async function ContentPage({ searchParams }: { searchParams?: { a
   const tier = await getTier();
   const actionError = (searchParams?.actionError ?? "").slice(0, 220);
 
-  const [{ data: calData }, { data: anData }, { data: draftData }] = await Promise.all([
+  const [{ data: calData }, { data: anData }, { data: draftData, error: draftErr }] = await Promise.all([
     sb.from("content_calendar").select("*").order("scheduled_for", { ascending: false }).limit(500),
     sb.from("content_analytics").select("*"),
     // Comment replies drafted by the engine but never posted by it: since 02-09-2026 a
@@ -147,6 +147,9 @@ export default async function ContentPage({ searchParams }: { searchParams?: { a
   let posts = (calData ?? []) as CalendarRow[];
   let analytics = (anData ?? []) as AnalyticsRow[];
   let drafts = (draftData ?? []) as CommentDraftRow[];
+  // A failed read must not look like an empty inbox: the whole point of the panel is
+  // that someone is waiting for a reply (Codex, 2026-09-02).
+  const draftsError = draftErr ? draftErr.message : null;
   const isAdmin = tier.isAdmin;
   // Clients with the content product manage their own posts (approve, edit,
   // revisions, image, date). Suspend and generation stay admin-only.
@@ -199,7 +202,8 @@ export default async function ContentPage({ searchParams }: { searchParams?: { a
             {(isAdmin || sectionIsOwn) && <GeneratePanel slug={s.slug} name={s.name} maxCount={isAdmin ? 10 : 6} />}
             <AnalyticsPanel name={s.name} a={s.analytics} posts={s.posts} showInternals={isAdmin || sectionIsOwn} />
             {(isAdmin || sectionIsOwn) && (
-              <CommentDraftsPanel slug={s.slug} name={s.name} drafts={drafts.filter(d => d.content_slug === s.slug)} />
+              <CommentDraftsPanel slug={s.slug} name={s.name} error={draftsError}
+                drafts={drafts.filter(d => d.content_slug === s.slug)} />
             )}
             <Card>
               <CardHeader title={`Posts · ${s.name}`} hint={`${s.posts.length} post${s.posts.length === 1 ? "" : "s"}`} />
@@ -231,20 +235,24 @@ export default async function ContentPage({ searchParams }: { searchParams?: { a
   );
 }
 
-function CommentDraftsPanel({ slug, name, drafts }: { slug: string; name: string; drafts: CommentDraftRow[] }) {
+function CommentDraftsPanel({ slug, name, drafts, error }: { slug: string; name: string; drafts: CommentDraftRow[]; error: string | null }) {
   return (
     <Card>
       <div id={`comments-${slug}`} className="scroll-mt-4" />
       <CardHeader
         title={`Comment replies to post by hand · ${name}`}
-        hint={drafts.length === 0 ? "nothing waiting" : `${drafts.length} waiting`}
+        hint={error ? "could not load" : drafts.length === 0 ? "nothing waiting" : `${drafts.length} waiting`}
       />
       <CardBody className="space-y-3">
         <p className="text-xs text-slate-500">
           The engine drafts a reply for each new comment but does not post it (LinkedIn treats tool-posted replies as
           automated). Copy the draft, paste it under the comment on LinkedIn, then mark it done. Edit freely before posting.
         </p>
-        {drafts.length === 0 ? (
+        {error ? (
+          <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+            Could not load the drafts ({error}). There may be comments waiting; reload the page.
+          </div>
+        ) : drafts.length === 0 ? (
           <EmptyState title="No comments waiting for a reply" />
         ) : drafts.map(d => (
           <div key={d.id} className="rounded-lg border p-3 space-y-2">
