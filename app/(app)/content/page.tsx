@@ -141,7 +141,8 @@ export default async function ContentPage({ searchParams }: { searchParams?: { a
     sb.from("content_analytics").select("*"),
     // Comment replies drafted by the engine but never posted by it: since 02-09-2026 a
     // person copies them into LinkedIn (tool-posted replies count as automated comments).
-    sb.from("content_comment_drafts").select("*").in("action", ["draft", "draft_sent"])
+    sb.from("content_comment_drafts").select("*")
+      .in("action", ["draft", "draft_sent", "draft_done"])
       .order("created_at", { ascending: false }).limit(200),
   ]);
   let posts = (calData ?? []) as CalendarRow[];
@@ -236,12 +237,17 @@ export default async function ContentPage({ searchParams }: { searchParams?: { a
 }
 
 function CommentDraftsPanel({ slug, name, drafts, error }: { slug: string; name: string; drafts: CommentDraftRow[]; error: string | null }) {
+  const open = drafts.filter(d => d.action !== "draft_done");
+  // Closed in the last 3 days stay reachable: "mark as posted" is one click and clicking
+  // it by mistake used to bury the comment for good (Codex, 2026-09-02).
+  const cutoff = Date.now() - 3 * 24 * 3600 * 1000;
+  const closed = drafts.filter(d => d.action === "draft_done" && new Date(d.created_at).getTime() >= cutoff);
   return (
     <Card>
       <div id={`comments-${slug}`} className="scroll-mt-4" />
       <CardHeader
         title={`Comment replies to post by hand · ${name}`}
-        hint={error ? "could not load" : drafts.length === 0 ? "nothing waiting" : `${drafts.length} waiting`}
+        hint={error ? "could not load" : open.length === 0 ? "nothing waiting" : `${open.length} waiting`}
       />
       <CardBody className="space-y-3">
         <p className="text-xs text-slate-500">
@@ -252,9 +258,9 @@ function CommentDraftsPanel({ slug, name, drafts, error }: { slug: string; name:
           <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
             Could not load the drafts ({error}). There may be comments waiting; reload the page.
           </div>
-        ) : drafts.length === 0 ? (
+        ) : open.length === 0 ? (
           <EmptyState title="No comments waiting for a reply" />
-        ) : drafts.map(d => (
+        ) : open.map(d => (
           <div key={d.id} className="rounded-lg border p-3 space-y-2">
             <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
               <span className="font-medium text-slate-700">{d.comment_author || "Unknown"}</span>
@@ -276,6 +282,25 @@ function CommentDraftsPanel({ slug, name, drafts, error }: { slug: string; name:
             </div>
           </div>
         ))}
+        {closed.length > 0 && (
+          <details className="group">
+            <summary className="cursor-pointer list-none rounded-md border border-dashed py-2 text-center text-xs font-medium text-slate-500 hover:bg-slate-50">
+              {closed.length} marked as posted in the last 3 days
+              <span className="group-open:hidden"> ▾</span><span className="hidden group-open:inline"> ▴</span>
+            </summary>
+            <div className="mt-3 space-y-2">
+              {closed.map(d => (
+                <div key={d.id} className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-xs text-slate-500">
+                  <span className="font-medium text-slate-600">{d.comment_author || "Unknown"}</span>
+                  <span className="truncate">{(d.comment_text ?? "").slice(0, 70)}</span>
+                  <form action={`/api/admin/content-comment/${d.id}?action=reopen`} method="post" className="ml-auto">
+                    <button className="rounded-md border px-2 py-1 font-medium text-slate-700 hover:bg-slate-50">Put back</button>
+                  </form>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
       </CardBody>
     </Card>
   );
