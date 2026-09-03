@@ -25,9 +25,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (!notes) return NextResponse.json({ error: "notes are required" }, { status: 400 });
 
   const svc = serviceRoleClient();
-  await svc.from("video_requests")
+  const upd = await svc.from("video_requests")
     .update({ storyboard_notes: notes, status: "storyboard_pending", updated_at: new Date().toISOString() })
-    .eq("id", request.id).eq("status", "storyboard_ready");
+    .eq("id", request.id).eq("status", "storyboard_ready").select("id");
+  if (upd.error) return NextResponse.json({ error: upd.error.message }, { status: 500 });
+  if (!upd.data?.length) {
+    return NextResponse.json({ error: "the storyboard changed while you were writing" }, { status: 409 });
+  }
   await addEvent(request.id, "storyboard_changes_requested", actor, { notes });
 
   if (ct.includes("application/json")) return NextResponse.json({ ok: true });

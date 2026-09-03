@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serviceRoleClient } from "@/lib/supabase/server";
-import { backTo, reasonOf, resolveActor, strategist } from "@/lib/calling-server";
+import { backTo, changedNothing, reasonOf, requireFeature, resolveActor, strategist } from "@/lib/calling-server";
 
 /**
  * POST /api/calling/email/:id?action=save|approve|reject
@@ -16,24 +16,36 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
   const who = await resolveActor();
   if ("error" in who) return who.error;
+  const gate = await requireFeature(who, "has_outreach");
+  if (gate) return gate;
 
   const admin = serviceRoleClient().schema("outreach");
   const { data: msg } = await admin.from("email_messages").select("id, client_slug, status").eq("id", mid).maybeSingle();
-  if (!msg) return NextResponse.json({ error: "not found" }, { status: 404 });
-  if (!who.isAdmin && msg.client_slug !== who.clientSlug) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  // Same answer whether the id does not exist or belongs to someone else: a different
+  // status for each tells an outsider which ids are real.
+  if (!msg || (!who.isAdmin && msg.client_slug !== who.clientSlug)) {
+    return NextResponse.json({ error: "not found" }, { status: 404 });
+  }
 
   const action = new URL(req.url).searchParams.get("action") ?? "approve";
   const back = backTo(req);
   back.hash = `email-${mid}`;
   const fd = await req.formData().catch(() => null);
-  const subject = fd ? String(fd.get("subject") ?? "").trim() : "";
-  const body = fd ? String(fd.get("body") ?? "").trim() : "";
+  // An unreadable form used to sail through as two empty strings, which for "save" meant
+  // wiping the draft the operator was trying to edit.
+  if (!fd) return NextResponse.json({ error: "could not read the form" }, { status: 400 });
+  const subject = String(fd.get("subject") ?? "").trim();
+  const body = String(fd.get("body") ?? "").trim();
 
   if (action === "save") {
-    const { error } = await admin.from("email_messages")
+    const res = await admin.from("email_messages")
       .update({ subject, body, updated_at: new Date().toISOString() })
-      .eq("id", mid).eq("status", "draft");
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      .eq("id", mid).eq("status", "draft").select("id");
+    if (res.error) return NextResponse.json({ error: res.error.message }, { status: 500 });
+    if (changedNothing(res)) {
+      back.searchParams.set("notice", "email:not-a-draft-any-more");
+      return NextResponse.redirect(back, 303);
+    }
     return NextResponse.redirect(back, 303);
   }
 

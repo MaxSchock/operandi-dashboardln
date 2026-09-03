@@ -25,17 +25,19 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const approver = cu?.email ?? user.email ?? "operandi_admin";
 
   if (action === "approve") {
-    const { error } = await admin.schema("outreach").from("templates_approved")
+    const upd = await admin.schema("outreach").from("templates_approved")
       .update({ approved_by: approver, approved_at: new Date().toISOString() })
-      .eq("id", tid);
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      .eq("id", tid).select("id");
+    if (upd.error) return NextResponse.json({ error: upd.error.message }, { status: 500 });
+    if (!upd.data?.length) return NextResponse.json({ error: "template not found" }, { status: 404 });
     return NextResponse.redirect(new URL(req.headers.get("referer") ?? "/templates", req.url));
   }
 
   if (action === "deactivate" || action === "activate") {
-    const { error } = await admin.schema("outreach").from("templates_approved")
-      .update({ active: action === "activate" }).eq("id", tid);
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    const upd = await admin.schema("outreach").from("templates_approved")
+      .update({ active: action === "activate" }).eq("id", tid).select("id");
+    if (upd.error) return NextResponse.json({ error: upd.error.message }, { status: 500 });
+    if (!upd.data?.length) return NextResponse.json({ error: "template not found" }, { status: 404 });
     return NextResponse.redirect(new URL(req.headers.get("referer") ?? "/templates", req.url));
   }
 
@@ -67,10 +69,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       .map(s => s.trim())
       .filter(Boolean);
 
-    // Pull existing meta to merge.
-    const { data: cur } = await admin.schema("outreach").from("templates_approved")
+    // Pull existing meta to merge. A failed read used to become {}, and the update below
+    // then wiped everything the template had (Codex, 2026-09-03).
+    const { data: cur, error: curErr } = await admin.schema("outreach").from("templates_approved")
       .select("meta").eq("id", tid).maybeSingle();
-    const meta = (cur?.meta as Record<string, unknown> | null) ?? {};
+    if (curErr) return NextResponse.json({ error: `could not read the template: ${curErr.message}` }, { status: 503 });
+    if (!cur) return NextResponse.json({ error: "not found" }, { status: 404 });
+    const meta = (cur.meta as Record<string, unknown> | null) ?? {};
     if (variants.length > 0) {
       meta["variants"] = variants;
       meta["variants_available"] = variants.length;
@@ -88,9 +93,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     };
     if (arm_key_payload !== undefined) update["arm_key"] = arm_key_payload;
 
-    const { error } = await admin.schema("outreach").from("templates_approved")
-      .update(update).eq("id", tid);
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    const upd = await admin.schema("outreach").from("templates_approved")
+      .update(update).eq("id", tid).select("id");
+    if (upd.error) return NextResponse.json({ error: upd.error.message }, { status: 500 });
+    if (!upd.data?.length) return NextResponse.json({ error: "template not found" }, { status: 404 });
 
     return NextResponse.redirect(new URL("/templates", req.url));
   }

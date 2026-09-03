@@ -18,9 +18,16 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   }
 
   const svc = serviceRoleClient();
-  await svc.from("video_requests")
+  // The status was read a moment ago; if it moved in between, the update matches nothing
+  // and Supabase still returns error=null. Approving a video that stayed unapproved is
+  // exactly the kind of silent success this codebase keeps producing (Codex, 2026-09-03).
+  const upd = await svc.from("video_requests")
     .update({ status: "approved", approved_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-    .eq("id", request.id).eq("status", "delivered");
+    .eq("id", request.id).eq("status", "delivered").select("id");
+  if (upd.error) return NextResponse.json({ error: upd.error.message }, { status: 500 });
+  if (!upd.data?.length) {
+    return NextResponse.json({ error: "the video changed status while you were approving it" }, { status: 409 });
+  }
   await addEvent(request.id, "video_approved", actor);
 
   const ct = req.headers.get("content-type") ?? "";

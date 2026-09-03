@@ -22,7 +22,9 @@ export async function POST(req: NextRequest) {
       ? `topup:added ${j.added}, duplicates ${j.duplicates}, no phone ${j.skipped_no_phone}, credits ${j.credits}`
       : `topup:${j.reason ?? "failed"}`);
   } catch {
-    back.searchParams.set("notice", "topup:done");
+    // A 200 with a body we cannot read is not a top-up: saying "done" sent the operator
+    // away believing leads had been added.
+    back.searchParams.set("notice", "topup:unreadable response, check before retrying");
   }
   return NextResponse.redirect(back, 303);
 }

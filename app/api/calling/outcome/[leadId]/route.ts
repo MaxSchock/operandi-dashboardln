@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serviceRoleClient } from "@/lib/supabase/server";
 import { CALL_OUTCOMES, type CallOutcome, type CallingState } from "@/lib/calling";
-import { backTo, loadLeadForActor, reasonOf, resolveActor, strategist } from "@/lib/calling-server";
+import { backTo, changedNothing, loadLeadForActor, reasonOf, requireFeature, resolveActor, strategist } from "@/lib/calling-server";
 
 /**
  * POST /api/calling/outcome/:leadId  (form body)
@@ -21,10 +21,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ leadId: st
 
   const who = await resolveActor();
   if ("error" in who) return who.error;
+  const gate = await requireFeature(who, "has_outreach");
+  if (gate) return gate;
   const state = await loadLeadForActor(lid, who);
-  if (!state) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  if (!state) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  const fd = await req.formData();
+  const fd = await req.formData().catch(() => null);
+  if (!fd) return NextResponse.json({ error: "could not read the form" }, { status: 400 });
   const outcome = String(fd.get("outcome") ?? "") as CallOutcome;
   if (!CALL_OUTCOMES.includes(outcome)) return NextResponse.json({ error: "bad outcome" }, { status: 400 });
   const notes = String(fd.get("notes") ?? "").trim().slice(0, 2000);
@@ -60,8 +63,15 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ leadId: st
   else if (!linkedin_connect && (outcome === "red" || outcome === "green") && state.current_stage === "pre_contact") {
     patch.current_stage = "paused";
   }
-  const { error: stErr } = await admin.from("lead_state").update(patch).eq("lead_id", lid);
-  if (stErr) return NextResponse.json({ error: stErr.message }, { status: 500 });
+  // The event is already written. If the state row moved underneath us the call would be
+  // logged with no state change and the operator would still see success, so say it.
+  const stRes = await admin.from("lead_state").update(patch).eq("lead_id", lid).select("lead_id");
+  if (stRes.error) return NextResponse.json({ error: stRes.error.message }, { status: 500 });
+  if (changedNothing(stRes)) {
+    return NextResponse.json(
+      { error: "the call was logged but the lead state could not be updated (it moved or was removed)" },
+      { status: 409 });
+  }
 
   if (outcome === "orange") {
     const res = await strategist(`/outreach/nurture/${lid}/start`, {

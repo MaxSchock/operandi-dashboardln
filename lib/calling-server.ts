@@ -67,3 +67,34 @@ export function reasonOf(text: string): string {
 export function backTo(req: Request, fallback = "/calling"): URL {
   return new URL(req.headers.get("referer") ?? fallback, req.url);
 }
+
+/** Products the caller's client has actually contracted. Admins pass through.
+ *
+ *  Ownership ("is this row mine?") was checked everywhere; entitlement ("do I have this
+ *  product?") was not, so an operator whose client never bought outreach could still
+ *  approve emails, fire invitations or upload contacts on their own data (Codex audit,
+ *  2026-09-03). Missing feature rows keep the historical behaviour: allowed. */
+export async function requireFeature(
+  actor: { isAdmin: boolean; clientSlug: string | null },
+  feature: "has_outreach" | "has_engagement" | "has_content",
+): Promise<NextResponse | null> {
+  if (actor.isAdmin) return null;
+  if (!actor.clientSlug) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const admin = serviceRoleClient().schema("outreach");
+  const { data, error } = await admin.from("client_features")
+    .select("has_outreach, has_engagement, has_content")
+    .eq("client_slug", actor.clientSlug).maybeSingle();
+  // A read failure must not open the door: fail closed.
+  if (error) return NextResponse.json({ error: "could not verify entitlements" }, { status: 503 });
+  if (!data) return null;
+  const on = (data as Record<string, boolean | null>)[feature];
+  if (on === false) return NextResponse.json({ error: "product not enabled for this client" }, { status: 403 });
+  return null;
+}
+
+/** True when a write actually changed a row. Supabase returns error=null for an update
+ *  whose filters matched nothing, and reporting that as success is how an operator ends
+ *  up believing something was saved when it was not. */
+export function changedNothing(res: { error: unknown; data: unknown[] | null }): boolean {
+  return !res.error && (!res.data || res.data.length === 0);
+}

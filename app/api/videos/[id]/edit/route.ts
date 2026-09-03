@@ -26,9 +26,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (!notes) return NextResponse.json({ error: "describe the changes you want" }, { status: 400 });
 
   const svc = serviceRoleClient();
-  await svc.from("video_requests")
+  const upd = await svc.from("video_requests")
     .update({ status: "edit_requested", updated_at: new Date().toISOString() })
-    .eq("id", request.id).eq("status", "delivered");
+    .eq("id", request.id).eq("status", "delivered").select("id");
+  if (upd.error) return NextResponse.json({ error: upd.error.message }, { status: 500 });
+  if (!upd.data?.length) {
+    return NextResponse.json({ error: "the video changed status while you were writing" }, { status: 409 });
+  }
   await addEvent(request.id, "edit_requested", actor, { notes });
 
   if (ct.includes("application/json")) return NextResponse.json({ ok: true });

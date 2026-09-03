@@ -44,7 +44,15 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const { data: prop } = await admin.schema("outreach").from("dm_proposals")
       .select("client_slug").eq("id", pid).maybeSingle();
     if (!prop || !cu?.client_slug || prop.client_slug !== cu.client_slug) {
-      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+      return NextResponse.json({ error: "not found" }, { status: 404 });
+    }
+    // Owning the row is not the same as having the product: approving sends a DM and
+    // "connect" fires a LinkedIn invitation (Codex, 2026-09-03).
+    const { data: feat, error: featErr } = await admin.schema("outreach").from("client_features")
+      .select("has_outreach, has_engagement").eq("client_slug", cu.client_slug).maybeSingle();
+    if (featErr) return NextResponse.json({ error: "could not verify entitlements" }, { status: 503 });
+    if (feat && feat.has_outreach === false && feat.has_engagement === false) {
+      return NextResponse.json({ error: "product not enabled for this client" }, { status: 403 });
     }
   }
 
@@ -63,9 +71,12 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       text = String(fd.get("proposed_text") ?? "");
     }
     const admin = serviceRoleClient();
-    const { error } = await admin.schema("outreach").from("dm_proposals")
-      .update({ proposed_text: text }).eq("id", pid).eq("status", "pending");
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    const upd = await admin.schema("outreach").from("dm_proposals")
+      .update({ proposed_text: text }).eq("id", pid).eq("status", "pending").select("id");
+    if (upd.error) return NextResponse.json({ error: upd.error.message }, { status: 500 });
+    if (!upd.data?.length) {
+      return NextResponse.json({ error: "this proposal is no longer pending, your text was not saved" }, { status: 409 });
+    }
     return NextResponse.redirect(back);
   }
 

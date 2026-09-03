@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, serviceRoleClient } from "@/lib/supabase/server";
 
 /**
  * POST /api/admin/group-post/:id?action=approve|reject|edit|mark-sent
@@ -23,12 +23,21 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const sb = await createClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: "auth required" }, { status: 401 });
-  const { data: cu } = await sb.from("client_users").select("role,email").eq("user_id", user.id).maybeSingle();
+  const { data: cu } = await sb.from("client_users").select("role,email,client_slug").eq("user_id", user.id).maybeSingle();
   const isAdmin = cu?.role === "operandi_admin";
 
   if (!isAdmin) {
+    // Ownership via RLS: the view returns only the caller's rows.
     const { data: owned } = await sb.from("content_group_queue").select("queue_row_id").eq("queue_row_id", qid).maybeSingle();
-    if (!owned) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    if (!owned) return NextResponse.json({ error: "not found" }, { status: 404 });
+    // And owning it is not the same as having the content product (Codex, 2026-09-03).
+    const svc = serviceRoleClient().schema("outreach");
+    const { data: feat, error: featErr } = await svc.from("client_features")
+      .select("has_content").eq("client_slug", cu?.client_slug ?? "").maybeSingle();
+    if (featErr) return NextResponse.json({ error: "could not verify entitlements" }, { status: 503 });
+    if (feat?.has_content === false) {
+      return NextResponse.json({ error: "product not enabled for this client" }, { status: 403 });
+    }
   }
 
   const payload: Record<string, string> = { approved_by: cu?.email ?? user.email ?? "operandi_admin" };

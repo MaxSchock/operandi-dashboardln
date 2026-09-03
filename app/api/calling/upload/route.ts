@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parseCsv } from "@/lib/calling";
-import { backTo, reasonOf, resolveActor, strategist } from "@/lib/calling-server";
+import { backTo, reasonOf, requireFeature, resolveActor, strategist } from "@/lib/calling-server";
 
 const MAX_BYTES = 2 * 1024 * 1024; // 500 rows of contacts is far below this; Vercel caps bodies at ~4.5 MB
 const MAX_ROWS = 500;
@@ -13,7 +13,10 @@ const MAX_ROWS = 500;
 export async function POST(req: NextRequest) {
   const who = await resolveActor();
   if ("error" in who) return who.error;
-  const fd = await req.formData();
+  const gate = await requireFeature(who, "has_outreach");
+  if (gate) return gate;
+  const fd = await req.formData().catch(() => null);
+  if (!fd) return NextResponse.json({ error: "could not read the upload" }, { status: 400 });
   const file = fd.get("file");
   const client = String(fd.get("client") ?? "").trim();
   const label = String(fd.get("label") ?? "upload").trim().replace(/[^a-z0-9_-]/gi, "_").slice(0, 40) || "upload";
@@ -41,7 +44,9 @@ export async function POST(req: NextRequest) {
     const j = JSON.parse(res.text);
     back.searchParams.set("notice", `upload:added ${j.added}, duplicates ${j.duplicates}, enriched ${j.enriched}, failed ${j.failed}`);
   } catch {
-    back.searchParams.set("notice", "upload:done");
+    // Enrichment costs money per row; "done" over an unreadable body hid whether a single
+    // contact made it in.
+    back.searchParams.set("notice", "upload:unreadable response, check the queue before retrying");
   }
   return NextResponse.redirect(back, 303);
 }

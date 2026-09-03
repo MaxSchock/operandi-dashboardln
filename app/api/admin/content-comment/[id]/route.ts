@@ -20,8 +20,20 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return NextResponse.json({ error: "auth required" }, { status: 401 });
   const { data: owned } = await sb.schema("outreach").from("content_comment_drafts")
-    .select("id, content_slug").eq("id", id).limit(1).maybeSingle();
-  if (!owned) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    .select("id, content_slug, outreach_slug").eq("id", id).limit(1).maybeSingle();
+  if (!owned) return NextResponse.json({ error: "not found" }, { status: 404 });
+  // Ownership comes from the RLS view; the content product is a separate question
+  // (Codex, 2026-09-03).
+  const { data: cu } = await sb.from("client_users").select("role, client_slug")
+    .eq("user_id", user.id).maybeSingle();
+  if (cu?.role !== "operandi_admin" && cu?.client_slug) {
+    const { data: feat, error: featErr } = await serviceRoleClient().schema("outreach")
+      .from("client_features").select("has_content").eq("client_slug", cu.client_slug).maybeSingle();
+    if (featErr) return NextResponse.json({ error: "could not verify entitlements" }, { status: 503 });
+    if (feat?.has_content === false) {
+      return NextResponse.json({ error: "product not enabled for this client" }, { status: 403 });
+    }
+  }
 
   const svc = serviceRoleClient();
   // select() back: a conditional update that matched nothing returns error=null, and

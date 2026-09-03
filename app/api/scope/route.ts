@@ -12,9 +12,19 @@ import { NextResponse, type NextRequest } from "next/server";
  * enforces tenant isolation at the data layer regardless of cookie value.
  */
 export async function POST(req: NextRequest) {
-  const body = await req.json().catch(() => ({}));
-  const client = typeof body.client === "string" ? body.client : "all";
+  // A malformed body used to fall through as "all", silently switching the operator to
+  // every client while answering ok.
+  const body = await req.json().catch(() => null);
+  if (!body || typeof body !== "object") {
+    return NextResponse.json({ error: "expected a JSON body" }, { status: 400 });
+  }
+  const raw = (body as Record<string, unknown>).client;
+  if (typeof raw !== "string" || !raw.trim()) {
+    return NextResponse.json({ error: "client must be a slug or \"all\"" }, { status: 400 });
+  }
+  const client = raw.trim();
   const value = client === "all" ? "all" : client.replace(/[^a-z0-9_-]/gi, "").slice(0, 64);
+  if (!value) return NextResponse.json({ error: "client is not a valid slug" }, { status: 400 });
 
   const res = NextResponse.json({ ok: true, scope: value });
   res.cookies.set("operandi_scope", value, {
