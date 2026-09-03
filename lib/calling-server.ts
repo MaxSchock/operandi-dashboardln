@@ -86,9 +86,11 @@ export async function requireFeature(
     .eq("client_slug", actor.clientSlug).maybeSingle();
   // A read failure must not open the door: fail closed.
   if (error) return NextResponse.json({ error: "could not verify entitlements" }, { status: 503 });
+  // No row at all: historical behaviour, allowed. A row that exists must say true;
+  // false, null or a missing column are all "cannot confirm", and cannot confirm means no.
   if (!data) return null;
   const on = (data as Record<string, boolean | null>)[feature];
-  if (on === false) return NextResponse.json({ error: "product not enabled for this client" }, { status: 403 });
+  if (on !== true) return NextResponse.json({ error: "product not enabled for this client" }, { status: 403 });
   return null;
 }
 

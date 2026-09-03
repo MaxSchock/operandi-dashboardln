@@ -46,12 +46,16 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     if (!prop || !cu?.client_slug || prop.client_slug !== cu.client_slug) {
       return NextResponse.json({ error: "not found" }, { status: 404 });
     }
-    // Owning the row is not the same as having the product: approving sends a DM and
-    // "connect" fires a LinkedIn invitation (Codex, 2026-09-03).
+    // Owning the row is not the same as having the product, and the two actions are not
+    // the same product: "connect" fires a LinkedIn invitation (outreach), the DM itself is
+    // engagement. Ingolf has engagement without outreach and Zayd the reverse, so an OR
+    // over both would have let each do the other's action (Codex, 2026-09-03).
+    const wanted = (new URL(req.url).searchParams.get("action") ?? "approve") === "connect"
+      ? "has_outreach" : "has_engagement";
     const { data: feat, error: featErr } = await admin.schema("outreach").from("client_features")
       .select("has_outreach, has_engagement").eq("client_slug", cu.client_slug).maybeSingle();
     if (featErr) return NextResponse.json({ error: "could not verify entitlements" }, { status: 503 });
-    if (feat && feat.has_outreach === false && feat.has_engagement === false) {
+    if (feat && (feat as Record<string, boolean | null>)[wanted] !== true) {
       return NextResponse.json({ error: "product not enabled for this client" }, { status: 403 });
     }
   }

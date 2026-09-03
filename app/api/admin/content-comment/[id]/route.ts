@@ -24,13 +24,17 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (!owned) return NextResponse.json({ error: "not found" }, { status: 404 });
   // Ownership comes from the RLS view; the content product is a separate question
   // (Codex, 2026-09-03).
-  const { data: cu } = await sb.from("client_users").select("role, client_slug")
+  const { data: cu, error: cuErr } = await sb.from("client_users").select("role, client_slug")
     .eq("user_id", user.id).maybeSingle();
-  if (cu?.role !== "operandi_admin" && cu?.client_slug) {
+  if (cuErr) return NextResponse.json({ error: "could not verify the caller" }, { status: 503 });
+  if (cu?.role !== "operandi_admin") {
+    // Not an admin and no client we can name: we cannot check anything, so we allow
+    // nothing. Before, a missing row skipped the gate entirely (Codex, 2026-09-03).
+    if (!cu?.client_slug) return NextResponse.json({ error: "forbidden" }, { status: 403 });
     const { data: feat, error: featErr } = await serviceRoleClient().schema("outreach")
       .from("client_features").select("has_content").eq("client_slug", cu.client_slug).maybeSingle();
     if (featErr) return NextResponse.json({ error: "could not verify entitlements" }, { status: 503 });
-    if (feat?.has_content === false) {
+    if (feat && feat.has_content !== true) {
       return NextResponse.json({ error: "product not enabled for this client" }, { status: 403 });
     }
   }

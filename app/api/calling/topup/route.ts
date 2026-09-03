@@ -18,9 +18,16 @@ export async function POST(req: NextRequest) {
   }
   try {
     const j = JSON.parse(res.text);
-    back.searchParams.set("notice", j.ok
-      ? `topup:added ${j.added}, duplicates ${j.duplicates}, no phone ${j.skipped_no_phone}, credits ${j.credits}`
-      : `topup:${j.reason ?? "failed"}`);
+    // A body that parses but has the wrong shape used to render "added undefined", which
+    // reads as a number that happens to be missing rather than as no answer at all.
+    if (j && j.ok === true && typeof j.added === "number") {
+      back.searchParams.set("notice",
+        `topup:added ${j.added}, duplicates ${j.duplicates ?? "?"}, no phone ${j.skipped_no_phone ?? "?"}, credits ${j.credits ?? "?"}`);
+    } else if (j && j.ok === false) {
+      back.searchParams.set("notice", `topup:${j.reason ?? "failed"}`);
+    } else {
+      back.searchParams.set("notice", "topup:unexpected response, check before retrying");
+    }
   } catch {
     // A 200 with a body we cannot read is not a top-up: saying "done" sent the operator
     // away believing leads had been added.

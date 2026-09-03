@@ -23,8 +23,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "client must be a slug or \"all\"" }, { status: 400 });
   }
   const client = raw.trim();
-  const value = client === "all" ? "all" : client.replace(/[^a-z0-9_-]/gi, "").slice(0, 64);
-  if (!value) return NextResponse.json({ error: "client is not a valid slug" }, { status: 400 });
+  // Stripping the invalid characters could turn one client's slug into another's, and the
+  // operator would never know they were looking at the wrong tenant (Codex, 2026-09-03).
+  if (client !== "all" && !/^[a-zA-Z0-9_-]{1,64}$/.test(client)) {
+    return NextResponse.json({ error: "client is not a valid slug" }, { status: 400 });
+  }
+  const value = client;
 
   const res = NextResponse.json({ ok: true, scope: value });
   res.cookies.set("operandi_scope", value, {

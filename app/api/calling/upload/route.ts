@@ -42,7 +42,12 @@ export async function POST(req: NextRequest) {
   }
   try {
     const j = JSON.parse(res.text);
-    back.searchParams.set("notice", `upload:added ${j.added}, duplicates ${j.duplicates}, enriched ${j.enriched}, failed ${j.failed}`);
+    if (j && typeof j.added === "number") {
+      back.searchParams.set("notice",
+        `upload:added ${j.added}, duplicates ${j.duplicates ?? "?"}, enriched ${j.enriched ?? "?"}, failed ${j.failed ?? "?"}`);
+    } else {
+      back.searchParams.set("notice", "upload:unexpected response, check the queue before retrying");
+    }
   } catch {
     // Enrichment costs money per row; "done" over an unreadable body hid whether a single
     // contact made it in.

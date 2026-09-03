@@ -40,13 +40,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ leadId: st
   back.hash = `lead-${lid}`;
 
   const admin = serviceRoleClient().schema("outreach");
-  const { error: evErr } = await admin.from("lead_events").insert({
-    lead_id: lid, client_slug: state.client_slug, channel: "phone", event_type: "call_outcome",
-    occurred_at: now,
-    payload: { outcome, notes, callback_at, linkedin_connect, branch: outcome === "orange" ? branch : null, by: who.actor },
-  });
-  if (evErr) return NextResponse.json({ error: evErr.message }, { status: 500 });
-
   const cs = (state.channel_state ?? {}) as Record<string, unknown>;
   const prev = ((cs.calling as CallingState | undefined) ?? { status: "queued", batch: "legacy", added_at: now, calls: 0 });
   const calling: CallingState = {
@@ -63,15 +56,21 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ leadId: st
   else if (!linkedin_connect && (outcome === "red" || outcome === "green") && state.current_stage === "pre_contact") {
     patch.current_stage = "paused";
   }
-  // The event is already written. If the state row moved underneath us the call would be
-  // logged with no state change and the operator would still see success, so say it.
+  // State first, event second. The other way round, a state row that had moved left the
+  // call logged and returned an error, so retrying duplicated the event (Codex, 2026-09-03).
   const stRes = await admin.from("lead_state").update(patch).eq("lead_id", lid).select("lead_id");
   if (stRes.error) return NextResponse.json({ error: stRes.error.message }, { status: 500 });
   if (changedNothing(stRes)) {
     return NextResponse.json(
-      { error: "the call was logged but the lead state could not be updated (it moved or was removed)" },
+      { error: "this lead moved or was removed while you were logging the call; nothing was saved" },
       { status: 409 });
   }
+  const { error: evErr } = await admin.from("lead_events").insert({
+    lead_id: lid, client_slug: state.client_slug, channel: "phone", event_type: "call_outcome",
+    occurred_at: now,
+    payload: { outcome, notes, callback_at, linkedin_connect, branch: outcome === "orange" ? branch : null, by: who.actor },
+  });
+  if (evErr) return NextResponse.json({ error: evErr.message }, { status: 500 });
 
   if (outcome === "orange") {
     const res = await strategist(`/outreach/nurture/${lid}/start`, {

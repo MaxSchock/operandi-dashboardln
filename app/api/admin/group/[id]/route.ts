@@ -29,12 +29,15 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     // Ownership via RLS: the view returns only the caller's rows.
     const { data: owned } = await sb.from("content_groups").select("group_row_id").eq("group_row_id", gid).maybeSingle();
     if (!owned) return NextResponse.json({ error: "not found" }, { status: 404 });
-    // And owning it is not the same as having the content product (Codex, 2026-09-03).
+    // And owning it is not the same as having the content product. Querying with an empty
+    // slug returned no row, which read as "no features on file" and let it through
+    // (Codex, 2026-09-03): an unidentifiable caller is denied instead.
+    if (!cu?.client_slug) return NextResponse.json({ error: "forbidden" }, { status: 403 });
     const svc = serviceRoleClient().schema("outreach");
     const { data: feat, error: featErr } = await svc.from("client_features")
-      .select("has_content").eq("client_slug", cu?.client_slug ?? "").maybeSingle();
+      .select("has_content").eq("client_slug", cu.client_slug).maybeSingle();
     if (featErr) return NextResponse.json({ error: "could not verify entitlements" }, { status: 503 });
-    if (feat?.has_content === false) {
+    if (feat && feat.has_content !== true) {
       return NextResponse.json({ error: "product not enabled for this client" }, { status: 403 });
     }
   }
