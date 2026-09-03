@@ -1,9 +1,10 @@
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Mail, Building2, Briefcase, Activity as ActivityIcon } from "lucide-react";
+import { ArrowLeft, Mail, Phone, Building2, Briefcase, Activity as ActivityIcon } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardBody, Badge, EmptyState } from "@/components/ui";
 import { getTier } from "@/lib/tier";
+import { orgPhone } from "@/lib/calling";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +49,7 @@ export default async function LeadDetail({ params }: { params: Promise<{ id: str
             <Row icon={<Building2 className="h-3.5 w-3.5" />} label="Company" value={lead.company ?? "—"} />
             <Row icon={<Briefcase className="h-3.5 w-3.5" />} label="Role" value={lead.role ?? "—"} />
             <Row icon={<Mail className="h-3.5 w-3.5" />} label="Email" value={lead.email ?? "—"} />
+            <PhoneRow lead={lead} />
             <Row icon={<ActivityIcon className="h-3.5 w-3.5" />} label="Source" value={lead.source ?? "—"} />
             {lead.icp_segment && (
               <div className="pt-2"><Badge tone="electric">{lead.icp_segment}</Badge></div>
@@ -113,6 +115,32 @@ export default async function LeadDetail({ params }: { params: Promise<{ id: str
           </CardBody>
         </Card>
       </section>
+    </div>
+  );
+}
+
+/** The number was in the data all along, it was simply never rendered: a lead reached
+ *  from Calling (a list filtered BY phone) opened a card with no phone on it.
+ *  Direct and company numbers are labelled apart: ringing someone's mobile and ringing
+ *  their switchboard are different calls, and for most sourced leads only the second exists. */
+function PhoneRow({ lead }: { lead: { phone?: string | null; enrichment?: { organization?: { phone?: string | null } } } }) {
+  const direct = (lead.phone ?? "").trim();
+  const any = orgPhone(lead) ?? "";
+  if (!any) {
+    return <Row icon={<Phone className="h-3.5 w-3.5" />} label="Phone" value="—" />;
+  }
+  const isDirect = Boolean(direct);
+  return (
+    <div className="flex items-start gap-3">
+      <div className="mt-0.5 text-slate-400"><Phone className="h-3.5 w-3.5" /></div>
+      <div className="min-w-0">
+        <div className="text-[11px] uppercase tracking-wide text-slate-400">
+          {isDirect ? "Phone" : "Company phone"}
+        </div>
+        <a href={`tel:${any.replace(/[^+\d]/g, "")}`} className="break-words text-electric hover:underline">
+          {any}
+        </a>
+      </div>
     </div>
   );
 }
