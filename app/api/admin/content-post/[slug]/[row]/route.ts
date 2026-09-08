@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
 /**
- * POST /api/admin/content-post/:slug/:row?action=approve|suspend|revise-text|revise-image|edit-text
- *   body (form or JSON): notes (revise-*), text (edit-text)
+ * POST /api/admin/content-post/:slug/:row?action=approve|suspend|revise-text|revise-image|edit-text|set-post-type
+ *   body (form or JSON): notes (revise-*), text (edit-text), post_type (set-post-type)
  *
  * Admin, or the client that owns the content slug. Ownership is resolved
  * server-side (client_users.client_slug -> clients_master.content_engine_slug
@@ -12,12 +12,14 @@ import { createClient } from "@/lib/supabase/server";
  * forwards to the internal content-engine daemon (writes the Google Sheet +
  * content_engine_posts).
  */
-const ADMIN_ACTIONS = new Set(["approve", "suspend", "revise-text", "revise-image", "edit-text", "set-date", "upload-image", "reset-published"]);
+const ADMIN_ACTIONS = new Set(["approve", "suspend", "revise-text", "revise-image", "edit-text", "set-date", "upload-image", "reset-published", "set-post-type"]);
 // suspend is owner-visible since 2026-07-08 (Cardeleine ask): a client suspending
 // their own post is a legitimate hard-negative signal.
 // reset-published is owner-visible too: it self-guards by verifying the LinkedIn post
 // is really gone before unlocking anything, so the owner can't duplicate a live post.
-const OWNER_ACTIONS = new Set(["approve", "suspend", "revise-text", "revise-image", "edit-text", "set-date", "upload-image", "reset-published"]);
+// set-post-type only switches between publishing with and without the picture, so it
+// is owner-visible: it cannot publish anything the owner had not already approved.
+const OWNER_ACTIONS = new Set(["approve", "suspend", "revise-text", "revise-image", "edit-text", "set-date", "upload-image", "reset-published", "set-post-type"]);
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: string; row: string }> }) {
@@ -62,6 +64,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: stri
     if (action === "edit-text") payload = { ...payload, text: String(fd.get("text") ?? "") };
     else if (action === "revise-text" || action === "revise-image") payload = { ...payload, notes: String(fd.get("notes") ?? "") };
     else if (action === "set-date" || action === "approve") payload = { ...payload, date: String(fd.get("date") ?? ""), time: String(fd.get("time") ?? "") };
+    else if (action === "set-post-type") payload = { ...payload, post_type: String(fd.get("post_type") ?? "") };
     else if (action === "upload-image") {
       const file = fd.get("image");
       if (!(file instanceof File) || file.size === 0) {

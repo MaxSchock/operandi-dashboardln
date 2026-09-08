@@ -97,25 +97,24 @@ function GeneratePanel({ slug, name, maxCount = 10 }: { slug: string; name: stri
               className="w-16 rounded-md border bg-white px-2 py-1 text-sm text-slate-700"
             />
           </div>
-          <fieldset className="space-y-1">
-            <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input type="radio" name="mode" value="auto" defaultChecked /> Let the agent pick the topics
-            </label>
-            <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input type="radio" name="mode" value="manual" /> I&apos;ll provide the topics
-            </label>
-          </fieldset>
           <div>
             <label className="text-xs text-slate-500">
-              Topics (one per line, only if you provide them)
+              Topics — leave empty and the agent picks them
             </label>
             <textarea
               name="topics"
-              rows={3}
-              placeholder="one topic per line"
+              rows={4}
+              placeholder={"One idea per line. Write full sentences if you want to: commas never split an idea.\nFor an idea that needs several lines, separate the ideas with an empty line."}
               className="mt-1 w-full rounded-md border bg-white px-2 py-1 text-sm text-slate-700"
             />
+            <p className="mt-1 text-xs text-slate-400">
+              One post per idea. What you write here decides what the post is about; voice,
+              structure and length stay as configured.
+            </p>
           </div>
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox" name="text_only" value="1" /> Without image (text-only posts)
+          </label>
           <div className="flex items-center gap-3">
             <button className="rounded-md bg-electric px-3 py-1.5 text-xs font-medium text-white hover:opacity-90">
               Generate
@@ -130,11 +129,22 @@ function GeneratePanel({ slug, name, maxCount = 10 }: { slug: string; name: stri
   );
 }
 
-export default async function ContentPage({ searchParams }: { searchParams?: { actionError?: string } }) {
+export default async function ContentPage({ searchParams }: {
+  searchParams?: {
+    actionError?: string; queued?: string; queuedTopics?: string;
+    queuedTextOnly?: string; queuedDropped?: string;
+  };
+}) {
   const sb = await createClient();
   const scope = await getClientScope();
   const tier = await getTier();
   const actionError = (searchParams?.actionError ?? "").slice(0, 220);
+  // Confirm what was queued. The generator used to reload the page and say nothing,
+  // so a topic list that had been mangled or dropped looked exactly like a good run.
+  const queued = Number(searchParams?.queued ?? 0) || 0;
+  const queuedTopics = Number(searchParams?.queuedTopics ?? 0) || 0;
+  const queuedTextOnly = searchParams?.queuedTextOnly === "1";
+  const queuedDropped = Number(searchParams?.queuedDropped ?? 0) || 0;
 
   const [{ data: calData }, { data: anData }, { data: draftData, error: draftErr }] = await Promise.all([
     sb.from("content_calendar").select("*").order("scheduled_for", { ascending: false }).limit(500),
@@ -181,6 +191,25 @@ export default async function ContentPage({ searchParams }: { searchParams?: { a
       {actionError && (
         <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           <span className="font-medium">That didn&apos;t work: </span>{actionError}
+        </div>
+      )}
+      {queued > 0 && (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          <span className="font-medium">{queued} post{queued === 1 ? "" : "s"} queued</span>
+          {queuedTopics > 0
+            ? ` from ${queuedTopics} topic${queuedTopics === 1 ? "" : "s"} you provided.`
+            : ", with topics picked by the agent."}
+          {queuedTextOnly && " Text only, no image."}
+          {" They appear below in a few minutes; refresh the page."}
+          {queuedTopics > 0 && queued > queuedTopics
+            ? ` (${queued} posts for ${queuedTopics} topics: the extra posts reuse them in turn.)`
+            : ""}
+          {queuedDropped > 0 && (
+            <span className="font-medium">
+              {` ${queuedDropped} more topic${queuedDropped === 1 ? " was" : "s were"} NOT used:`}
+              {` this request tops out at ${queued} posts. Send them again in a second batch.`}
+            </span>
+          )}
         </div>
       )}
       <header>
@@ -565,6 +594,17 @@ function PostCard({ r, isAdmin, ownSlug }: { r: CalendarRow; isAdmin: boolean; o
               <button className="mt-1 rounded-md bg-electric px-3 py-1 text-xs font-medium text-white hover:opacity-90">Upload image</button>
             </form>
           </details>
+
+          {/* Publish without a picture. The engine has always supported it (post_type
+              Text skips the attachment and waives the image approval), it was simply
+              never exposed: every post ever created was post_type Image. */}
+          <form action={`${act}?action=set-post-type`} method="post">
+            <input type="hidden" name="post_id" value={r.post_id} />
+            <input type="hidden" name="post_type" value={textOnly ? "Image" : "Text"} />
+            <button className="rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200">
+              {textOnly ? "Publish with image" : "Publish without image"}
+            </button>
+          </form>
 
           <form action={`${act}?action=suspend`} method="post" className="ml-auto">
             <input type="hidden" name="post_id" value={r.post_id} />

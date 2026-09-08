@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { parseTopics } from "@/lib/topics";
 
 /**
  * POST /api/admin/content-generate/:slug
- *   body (form or JSON): count (int), mode ("auto" | "manual"), topics (textarea, one per line)
+ *   body (form or JSON): count (int), topics (textarea), text_only (checkbox)
+ *
+ * A non-empty topics field IS the manual mode: the old auto/manual radio silently
+ * threw the typed topics away whenever the caller left it on its "auto" default.
  *
  * Operandi admins, or the client that owns the content slug. Ownership is resolved
  * server-side exactly like content-post: content_calendar only returns rows mapped
@@ -50,28 +54,42 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: stri
     }
   }
 
-  // Build the body the daemon expects: { count, topics }.
+  // Build the body the daemon expects: { count, topics, text_only }.
   let count = 3;
-  let mode = "auto";
   let topicsRaw = "";
+  let textOnly = false;
   const ct = req.headers.get("content-type") ?? "";
   if (ct.includes("application/json")) {
     const j = await req.json();
     count = Number(j.count) || 3;
-    mode = String(j.mode ?? "auto");
-    topicsRaw = String(j.topics ?? "");
+    // An array is the natural JSON shape and must not be flattened into one string:
+    // joining it would now merge every topic into a single post, because commas
+    // stopped being separators.
+    topicsRaw = Array.isArray(j.topics)
+      ? j.topics.map((t: unknown) => String(t ?? "").trim()).filter(Boolean).join("\n")
+      : String(j.topics ?? "");
+    textOnly = j.text_only === true || j.text_only === 1 || j.text_only === "1"
+      || String(j.text_only ?? "").toLowerCase() === "true";
   } else {
     const fd = await req.formData();
     count = Number(fd.get("count")) || 3;
-    mode = String(fd.get("mode") ?? "auto");
     topicsRaw = String(fd.get("topics") ?? "");
+    textOnly = fd.get("text_only") != null;
   }
-  count = Math.max(1, Math.min(isAdmin ? 10 : OWNER_MAX_COUNT, count));
+  const maxCount = isAdmin ? 10 : OWNER_MAX_COUNT;
+  count = Math.max(1, Math.min(maxCount, count));
 
-  const topics =
-    mode === "manual"
-      ? topicsRaw.split(/[\n,]/).map(t => t.trim()).filter(Boolean)
-      : [];
+  // One post per requested topic: with count below the number of topics the extra
+  // ideas were silently dropped (the daemon round-robins topics[i % n]).
+  let topics = parseTopics(topicsRaw);
+  let droppedTopics = 0;
+  if (topics.length) {
+    count = Math.max(count, Math.min(maxCount, topics.length));
+    // Over the per-request budget the surplus topics would never be reached at all.
+    // Cut them here and say so, instead of sending ideas the daemon will ignore.
+    droppedTopics = Math.max(0, topics.length - count);
+    topics = topics.slice(0, count);
+  }
 
   const base = process.env.STRATEGIST_BASE_URL;
   const token = process.env.STRATEGIST_WEBHOOK_TOKEN;
@@ -82,15 +100,28 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: stri
     res = await fetch(`${base.replace(/\/$/, "")}/content/generate/${encodeURIComponent(slug)}`, {
       method: "POST",
       headers: { "content-type": "application/json", ...(token ? { "x-webhook-token": token } : {}) },
-      body: JSON.stringify({ count, topics }),
+      body: JSON.stringify({ count, topics, text_only: textOnly }),
       cache: "no-store",
     });
   } catch (e) {
     return NextResponse.json({ error: `strategist unreachable: ${String(e)}` }, { status: 502 });
   }
+  // Say what was actually queued. Without this the caller had no way to notice that
+  // their topics had been dropped or cut into pieces: the page just reloaded.
+  const back = new URL(req.headers.get("referer") ?? "/content", req.url);
+  back.searchParams.delete("actionError");
   if (!res.ok) {
+    // The strategist turns the daemon's {ok:false} into a 409 with the reason. Show it
+    // as the page banner: raw JSON is unreadable for a client (same call as content-post).
     const detail = await res.text().catch(() => "");
-    return NextResponse.json({ error: `generate failed: ${res.status} ${detail.slice(0, 300)}` }, { status: 502 });
+    let reason = detail;
+    try { reason = JSON.parse(detail).detail ?? detail; } catch { /* keep raw */ }
+    back.searchParams.set("actionError", `generate failed: ${String(reason)}`.slice(0, 220));
+    return NextResponse.redirect(back, 303);
   }
-  return NextResponse.redirect(new URL(req.headers.get("referer") ?? "/content", req.url));
+  back.searchParams.set("queued", String(count));
+  back.searchParams.set("queuedTopics", String(topics.length));
+  if (droppedTopics > 0) back.searchParams.set("queuedDropped", String(droppedTopics));
+  if (textOnly) back.searchParams.set("queuedTextOnly", "1");
+  return NextResponse.redirect(back, 303);
 }
