@@ -116,8 +116,8 @@ export function VideoWizard({
       </Field>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Field label={`Duration (3-${maxDurationS}s, 30-60s performs best)`} required>
-          <input name="duration_s" type="number" min={3} max={maxDurationS} defaultValue={Math.min(45, maxDurationS)} required
+        <Field label={`Duration (3-${maxDurationS}s, 15-30s recommended)`} required>
+          <input name="duration_s" type="number" min={3} max={maxDurationS} defaultValue={Math.min(30, maxDurationS)} required
             className="w-full rounded-md border bg-white px-2 py-1.5 text-sm" />
         </Field>
         <Field label="Language" required>
@@ -149,6 +149,7 @@ export function VideoWizard({
         </Field>
         <Field label="Topic pillar" required>
           <select name="topic_pillar" required className="w-full rounded-md border bg-white px-2 py-1.5 text-sm">
+            <option value="Product">Product (your product or AI avatar)</option>
             <option value="Leadership">Leadership</option>
             <option value="AI at work">AI at work</option>
             <option value="Founder life">Founder life</option>
@@ -203,8 +204,9 @@ export function VideoWizard({
           className="block w-full text-xs text-slate-600 file:mr-2 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-slate-700 hover:file:bg-slate-200"
         />
         <p className="mt-1 text-xs text-slate-500">
-          Short real clips (an event, your office, a keynote moment) make the strongest videos and are used as
-          actual footage. Photos guide the look: sharp, well lit, subject centered.
+          Clips are used as actual footage: an event, your office, a keynote moment, or a screen recording of
+          your product. Showing a product or an app? Upload a screen recording: AI-generated footage cannot
+          show real screens. Photos do not change the generated scenes yet.
         </p>
         {fileWarning && <div className="mt-1 text-xs text-amber-600">{fileWarning}</div>}
         {files.length > 0 && (

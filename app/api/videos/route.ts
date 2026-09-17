@@ -6,7 +6,7 @@ const STYLES = new Set(["typography", "broll", "talking_head"]);
 const LANGS = new Set(["en", "de", "fr", "nl", "es"]);
 const ASPECTS = new Set(["9:16", "1:1", "16:9"]);
 const HOOKS = new Set(["Bold claim", "Question", "Surprising stat", "Story opening"]);
-const PILLARS = new Set(["Leadership", "AI at work", "Founder life", "Mindset", "Industry insight"]);
+const PILLARS = new Set(["Product", "Leadership", "AI at work", "Founder life", "Mindset", "Industry insight"]);
 const CTA_STYLES = new Set(["Comment prompt", "Follow for more", "Link in comments"]);
 
 /**

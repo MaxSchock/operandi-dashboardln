@@ -62,6 +62,16 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
   const events = (evData ?? []) as Ev[];
   const refs = assets.filter(a => a.kind.startsWith("reference_"));
   const act = `/api/videos/${r.id}`;
+  // Parts that failed in the latest production run but did not stop delivery.
+  // Events come newest first, so everything before the latest render_started is that run.
+  const lastRun = events.findIndex(e => e.event_type === "render_started");
+  const runEvents = lastRun === -1 ? events : events.slice(0, lastRun);
+  const missing = Array.from(new Set(runEvents.flatMap(e =>
+    e.event_type === "voiceover_failed" ? ["narration", "captions"]
+    : e.event_type === "captions_stt_failed" ? ["word-timed captions"]
+    : e.event_type === "music_failed" ? ["music"]
+    : [])));
+  const degraded = ["delivered", "approved", "published"].includes(r.status) && missing.length > 0;
   const brief = r.brief as { goal?: string; key_message?: string; cta?: string; style?: string; language?: string; voice?: boolean; visual_directions?: string };
 
   return (
@@ -88,6 +98,13 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
       {r.status === "failed" && (
         <div className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700">
           Production failed and your credit was returned. {r.error ? `Detail: ${r.error}` : ""} You can approve the storyboard again to retry.
+        </div>
+      )}
+
+      {degraded && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+          This video was delivered without its {missing.join(" and ")} because of a fault on our side, not
+          because of your brief. The fault is fixed; write to us and we produce it again.
         </div>
       )}
 
