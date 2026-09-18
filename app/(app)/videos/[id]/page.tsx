@@ -233,6 +233,9 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
                                         <button className="mt-1 rounded-md bg-amber-500 px-3 py-1 text-[11px] font-medium text-white hover:opacity-90">
                                           Mark for redraw
                                         </button>
+                                        {k.role === "start" && kfLatest.some(o => o.shot_n === n && o.role === "end") && (
+                                          <p className="mt-1 text-[11px] text-slate-400">The end image is redrawn too, so both match.</p>
+                                        )}
                                       </form>
                                     </details>
                                   ) : (
