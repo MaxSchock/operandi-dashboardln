@@ -14,10 +14,13 @@ export function VideoWizard({
   maxDurationS,
   voiceAvailable,
   linkedPosts,
+  keyframeReview = false,
 }: {
   maxDurationS: number;
   voiceAvailable: boolean;
   linkedPosts: LinkedPost[];
+  /** Client approves an image of every shot before production (client_features.video_keyframe_review). */
+  keyframeReview?: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
@@ -206,7 +209,10 @@ export function VideoWizard({
         <p className="mt-1 text-xs text-slate-500">
           Clips are used as actual footage: an event, your office, a keynote moment, or a screen recording of
           your product. Showing a product or an app? Upload a screen recording: AI-generated footage cannot
-          show real screens. Photos do not change the generated scenes yet.
+          show real screens.{" "}
+          {keyframeReview
+            ? "Photos guide the look of the images you approve before production."
+            : "Photos do not change the generated scenes yet."}
         </p>
         {fileWarning && <div className="mt-1 text-xs text-amber-600">{fileWarning}</div>}
         {files.length > 0 && (
@@ -216,8 +222,12 @@ export function VideoWizard({
 
       <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600">
         Next step: we draft a free storyboard (script and shot list) for you to approve.
-        Nothing is produced and no budget is used until you approve it.
-        The storyboard usually takes about 2 minutes; production takes 15-45 minutes after your approval.
+        {keyframeReview
+          ? <>Then you see and approve an image of every shot. Nothing is produced and no budget is used
+            until you approve those images. The storyboard usually takes about 2 minutes, the images 1-3
+            minutes; production takes 15-45 minutes after your approval.</>
+          : <>Nothing is produced and no budget is used until you approve it.
+            The storyboard usually takes about 2 minutes; production takes 15-45 minutes after your approval.</>}
         Spoken words are captioned automatically.
       </div>
 

@@ -61,6 +61,7 @@ export default async function NewVideoPage() {
             maxDurationS={actor.features.video_max_duration_s}
             voiceAvailable={voiceAvailable}
             linkedPosts={linkedPosts}
+            keyframeReview={actor.features.video_keyframe_review}
           />
         </CardBody>
       </Card>

@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 const TRANSIENT = new Set([
-  "storyboard_pending", "storyboard_approved", "queued", "rendering", "edit_requested", "recomposing",
+  "storyboard_pending", "storyboard_approved", "keyframes_generating", "queued", "rendering", "edit_requested", "recomposing",
 ]);
 
 /** Refreshes the server-rendered detail page while the request is in a

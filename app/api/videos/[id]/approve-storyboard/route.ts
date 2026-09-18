@@ -1,20 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serviceRoleClient } from "@/lib/supabase/server";
-import { resolveVideoActor, loadOwnedRequest, addEvent } from "@/lib/videos";
+import { resolveVideoActor, loadOwnedRequest, addEvent, needsKeyframes, QUOTA_MESSAGES } from "@/lib/videos";
 
-const QUOTA_MESSAGES: Record<string, string> = {
-  weekly_quota_reached: "Weekly quota reached: you have 1 video per week. The next slot opens on Monday.",
-  regen_quota_reached: "This video already used its 1 paid regeneration.",
-  monthly_cap_reached: "The monthly production budget for your account is used up. Ask Max if you need more.",
-  video_not_enabled: "Video is not enabled for this client.",
-  duration_exceeds_max: "The requested duration exceeds your plan limit.",
-};
 
 /**
- * POST /api/videos/:id/approve-storyboard — the paid gate. Marks the
- * storyboard approved and asks video_consume_credit() (SECURITY DEFINER, the
- * single quota choke point) for the credit. Only a successful consume moves
- * the request to the render queue.
+ * POST /api/videos/:id/approve-storyboard. Two paths:
+ *  - Keyframe review (client_features.video_keyframe_review and a storyboard
+ *    with drawn shots): NO credit here. The request goes to
+ *    keyframes_generating, the engine draws the stills, the client approves
+ *    them and /produce consumes the credit. The quota is only checked, so no
+ *    stills are drawn for a video that could not be produced anyway.
+ *  - Otherwise, the paid gate as before: video_consume_credit() (SECURITY
+ *    DEFINER, the single quota choke point) and the render queue.
  */
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { actor, error, status } = await resolveVideoActor();
@@ -30,6 +27,33 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
   const svc = serviceRoleClient();
   const nowIso = new Date().toISOString();
+
+  if (actor.features.video_keyframe_review && needsKeyframes(request.brief, request.storyboard)) {
+    const { data: check, error: checkError } = await svc.rpc("video_credit_check", { p_request: request.id });
+    if (checkError || !check?.ok) {
+      const reason = check?.reason ?? checkError?.message ?? "unknown";
+      await addEvent(request.id, "credit_refused", actor, { reason, stage: "storyboard" });
+      return NextResponse.json(
+        { error: QUOTA_MESSAGES[reason] ?? `cannot start production: ${reason}`, reason },
+        { status: 403 },
+      );
+    }
+    const { data: moved } = await svc.from("video_requests")
+      .update({
+        status: "keyframes_generating",
+        storyboard_approved_at: nowIso,
+        storyboard_approved_by: actor.tier.userId,
+        error: null,
+        updated_at: nowIso,
+      })
+      .eq("id", request.id).eq("status", request.status)
+      .select("id").maybeSingle();
+    if (!moved) return NextResponse.json({ error: "request changed state, reload the page" }, { status: 409 });
+    await addEvent(request.id, "storyboard_approved", actor, { credit: "at_keyframe_approval" });
+    const ct = req.headers.get("content-type") ?? "";
+    if (ct.includes("application/json")) return NextResponse.json({ ok: true, next: "keyframes" });
+    return NextResponse.redirect(new URL(`/videos/${request.id}`, req.url), 303);
+  }
   const { data: moved } = await svc.from("video_requests")
     .update({
       status: "storyboard_approved",

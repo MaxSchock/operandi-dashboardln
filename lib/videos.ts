@@ -36,6 +36,8 @@ export type VideoActor = {
     video_regens_per_video: number;
     video_max_duration_s: number;
     voice_consent_at: string | null;
+    /** Client reviews the keyframes before production; credit is consumed at that approval. */
+    video_keyframe_review: boolean;
   };
 };
 
@@ -61,7 +63,7 @@ export async function resolveVideoActor(): Promise<{ actor: VideoActor | null; e
   const svc = serviceRoleClient();
   const [{ data: cf }, { data: cm }] = await Promise.all([
     svc.schema("outreach").from("client_features")
-      .select("video_enabled, video_weekly_quota, video_regens_per_video, video_max_duration_s, voice_consent_at")
+      .select("video_enabled, video_weekly_quota, video_regens_per_video, video_max_duration_s, voice_consent_at, video_keyframe_review")
       .eq("client_slug", clientSlug).maybeSingle(),
     svc.from("clients_master").select("content_engine_slug").eq("client_slug", clientSlug).maybeSingle(),
   ]);
@@ -107,4 +109,60 @@ export function estimateCostUsd(style: string, durationS: number, voice: boolean
   const perSecond = style === "typography" ? 0 : style === "talking_head" ? 0.14 : 0.3024;
   const extras = 0.2 + (style === "typography" ? 0 : 0.15) + (voice ? 0.05 : 0);
   return Math.round((perSecond * durationS + extras) * 100) / 100;
+}
+
+export const QUOTA_MESSAGES: Record<string, string> = {
+  weekly_quota_reached: "Weekly quota reached: you have 1 video per week. The next slot opens on Monday.",
+  regen_quota_reached: "This video already used its 1 paid regeneration.",
+  monthly_cap_reached: "The monthly production budget for your account is used up. Ask Max if you need more.",
+  video_not_enabled: "Video is not enabled for this client.",
+  duration_exceeds_max: "The requested duration exceeds your plan limit.",
+  keyframes_not_approved: "Approve every image before starting production.",
+};
+
+type BoardShot = { recipe?: string | null; source_ref?: string | null };
+
+/** True when the storyboard has shots that are drawn as stills before any
+ * footage (broll shots with an image recipe and no client clip). Only those
+ * requests go through the keyframe review; everything else is produced
+ * straight from the script, as before. Mirrors keyframes.build_for_request. */
+export function needsKeyframes(brief: Record<string, unknown>, storyboard: Record<string, unknown> | null): boolean {
+  if (brief?.style !== "broll") return false;
+  const shots = ((storyboard?.shots as BoardShot[] | undefined) ?? []);
+  return shots.some(s => (s.recipe === "image" || s.recipe === "first_last") && !s.source_ref);
+}
+
+/** Client redraws allowed per image (the engine caps its own automatic retries separately). */
+export const MAX_KEYFRAME_REDRAWS = 3;
+
+export type Keyframe = {
+  id: string;
+  shot_n: number;
+  role: "start" | "end";
+  storage_key: string | null;
+  status: "proposed" | "approved" | "rejected" | "failed";
+  version: number;
+  notes: string | null;
+  qc: { ok?: boolean; reason?: string } | null;
+};
+
+/** The image that stands for each (shot, role): its latest version. Earlier
+ * versions (rejected by the automatic check or by the client) are history. */
+export function latestKeyframes(rows: Keyframe[]): Keyframe[] {
+  const latest = new Map<string, Keyframe>();
+  for (const k of rows) {
+    const key = `${k.shot_n}:${k.role}`;
+    const cur = latest.get(key);
+    if (!cur || k.version > cur.version) latest.set(key, k);
+  }
+  return [...latest.values()].sort((a, b) => a.shot_n - b.shot_n || (a.role === "start" ? -1 : 1));
+}
+
+/** How many times the client has rejected this image with a note. */
+export function clientRedraws(rows: Keyframe[], shotN: number, role: string): number {
+  return rows.filter(k => k.shot_n === shotN && k.role === role && k.status === "rejected" && (k.notes ?? "").trim()).length;
+}
+
+export function wantsJson(req: Request): boolean {
+  return (req.headers.get("content-type") ?? "").includes("application/json");
 }
