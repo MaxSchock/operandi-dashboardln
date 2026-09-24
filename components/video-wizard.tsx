@@ -199,10 +199,13 @@ export function VideoWizard({
           onChange={e => {
             const all = [...(e.target.files ?? [])];
             const ok = all.filter(f => f.size <= (f.type.startsWith("video/") ? 100 * 1024 * 1024 : 20 * 1024 * 1024));
-            setFiles(ok);
+            // Each pick ADDS to the list: replacing it meant a client choosing
+            // photos one at a time ended up with only the last one (Cardeleine, 2026-09-23).
+            setFiles(prev => [...prev, ...ok.filter(f => !prev.some(p => p.name === f.name && p.size === f.size))]);
             setFileWarning(ok.length < all.length
               ? `${all.length - ok.length} file(s) skipped: over the size limit (20MB images, 100MB videos).`
               : null);
+            e.target.value = "";
           }}
           className="block w-full text-xs text-slate-600 file:mr-2 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-slate-700 hover:file:bg-slate-200"
         />
@@ -210,13 +213,21 @@ export function VideoWizard({
           Clips are used as actual footage: an event, your office, a keynote moment, or a screen recording of
           your product. Showing a product or an app? Upload a screen recording: AI-generated footage cannot
           show real screens.{" "}
-          {keyframeReview
-            ? "Photos guide the look of the images you approve before production."
-            : "Photos do not change the generated scenes yet."}
+          Photos are handed to the image model for the shots they fit: a person, product or place in
+          them is drawn as in the photo.{keyframeReview ? " You check the result on the images you approve before production." : ""}
+          {" "}You can add several files, at once or one after another.
         </p>
         {fileWarning && <div className="mt-1 text-xs text-amber-600">{fileWarning}</div>}
         {files.length > 0 && (
-          <div className="mt-1 text-xs text-slate-500">{files.length} file{files.length === 1 ? "" : "s"} selected</div>
+          <ul className="mt-1 space-y-0.5 text-xs text-slate-600">
+            {files.map((f, i) => (
+              <li key={`${f.name}-${f.size}`} className="flex items-center gap-2">
+                <span className="truncate">{f.type.startsWith("video/") ? "🎞" : "🖼"} {f.name}</span>
+                <button type="button" onClick={() => setFiles(prev => prev.filter((_, j) => j !== i))}
+                  className="text-slate-400 hover:text-red-600">remove</button>
+              </li>
+            ))}
+          </ul>
         )}
       </Field>
 
