@@ -11,7 +11,7 @@ import { VideoStatusPoller } from "@/components/video-status-poller";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-type Shot = { n?: number; description?: string; duration_s?: number; text_overlay?: string; asset?: string; recipe?: string | null; source_ref?: string | null };
+type Shot = { n?: number; description?: string; duration_s?: number; text_overlay?: string; asset?: string; recipe?: string | null; source_ref?: string | null; line?: { speaker?: string; text?: string } | null };
 type Storyboard = {
   script?: string;
   shots?: Shot[];
@@ -309,6 +309,11 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
                       <li key={i} className="rounded-md border p-3 text-xs text-slate-700">
                         <span className="font-medium text-navy">#{s.n ?? i + 1}</span>
                         {s.duration_s ? ` · ${s.duration_s}s` : ""} · {s.description ?? ""}
+                        {s.line?.text && (
+                          <div className="mt-1 text-slate-700">
+                            <span className="font-medium">{s.line.speaker || "Speaker"} says:</span> “{s.line.text}”
+                          </div>
+                        )}
                         {s.text_overlay && <div className="mt-1 text-slate-500">Overlay: “{s.text_overlay}”</div>}
                       </li>
                     ))}

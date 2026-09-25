@@ -177,7 +177,7 @@ export function VideoWizard({
       {voiceAvailable && (
         <label className="flex items-center gap-2 text-sm text-slate-700">
           <input type="checkbox" name="voice" />
-          Use my cloned voice for the voiceover
+          Use my cloned voice when I speak on screen (a narrator always uses a neutral voice)
         </label>
       )}
 
