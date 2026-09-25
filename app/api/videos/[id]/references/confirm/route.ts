@@ -31,6 +31,12 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     return NextResponse.json({ error: "stored object exceeds the size limit" }, { status: 413 });
   }
 
+  // What the client said the file is for; anything else falls back to the old
+  // behaviour (videos are footage, photos are look references).
+  const use = String(body.use ?? "");
+  const allowed = isVideo ? ["footage", "example"] : ["look", "as_is"];
+  const meta = { use: allowed.includes(use) ? use : allowed[0] };
+
   const svc = serviceRoleClient();
   const { data, error: dbError } = await svc.from("video_assets").insert({
     request_id: request.id,
@@ -38,9 +44,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     storage_key: key,
     mime: head.mime,
     size_bytes: head.size,
+    meta,
   }).select("id").single();
   if (dbError) return NextResponse.json({ error: dbError.message }, { status: 500 });
 
-  await addEvent(request.id, "reference_uploaded", actor, { key, mime: head.mime, size: head.size });
+  await addEvent(request.id, "reference_uploaded", actor, { key, mime: head.mime, size: head.size, use: meta.use });
   return NextResponse.json({ id: data.id, key });
 }

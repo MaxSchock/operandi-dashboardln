@@ -37,7 +37,7 @@ type Req = {
   created_at: string;
 };
 
-type Asset = { id: string; kind: string; storage_key: string; mime: string | null; size_bytes: number | null };
+type Asset = { id: string; kind: string; storage_key: string; mime: string | null; size_bytes: number | null; meta?: { use?: string } | null };
 type Ev = { id: number; event_type: string; actor: string; payload: Record<string, unknown> | null; created_at: string };
 
 const STATUS_TONE: Record<string, "slate" | "green" | "amber" | "red" | "electric"> = {
@@ -56,7 +56,7 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
   const sb = await createPublicClient();
   const [{ data: reqData }, { data: assetData }, { data: evData }, { data: kfData }] = await Promise.all([
     sb.from("video_requests").select("*").eq("id", id).maybeSingle(),
-    sb.from("video_assets").select("id, kind, storage_key, mime, size_bytes").eq("request_id", id).order("created_at"),
+    sb.from("video_assets").select("id, kind, storage_key, mime, size_bytes, meta").eq("request_id", id).order("created_at"),
     sb.from("video_events").select("id, event_type, actor, payload, created_at").eq("request_id", id).order("created_at", { ascending: false }).limit(30),
     sb.from("video_keyframes").select("id, shot_n, role, storage_key, status, version, notes, qc").eq("request_id", id),
   ]);
@@ -415,6 +415,8 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
                     <li key={a.id} className="text-slate-600">
                       {a.kind === "reference_video" ? "🎞" : "🖼"} {a.storage_key.split("/").pop()}
                       {a.size_bytes ? ` · ${(a.size_bytes / 1024 / 1024).toFixed(1)}MB` : ""}
+                      {" · "}{({ as_is: "shown as it is", example: "example only", footage: "footage", look: "look reference" } as Record<string, string>)[
+                        a.meta?.use ?? (a.kind === "reference_video" ? "footage" : "look")] ?? ""}
                     </li>
                   ))}
                 </ul>

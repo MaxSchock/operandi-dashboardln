@@ -4,6 +4,11 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 type LinkedPost = { id: string; label: string };
+/** What an upload is for. Images: shown exactly as uploaded, or a look
+ * reference the image model follows. Videos: real footage, or only an example
+ * of the structure (an old recording must never end up in the video). */
+type RefUse = "as_is" | "look" | "footage" | "example";
+type RefFile = { file: File; use: RefUse };
 
 /**
  * Video request wizard. Submits the brief as JSON, then uploads any reference
@@ -25,7 +30,7 @@ export function VideoWizard({
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [files, setFiles] = useState<File[]>([]);
+  const [files, setFiles] = useState<RefFile[]>([]);
   const [fileWarning, setFileWarning] = useState<string | null>(null);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -60,7 +65,7 @@ export function VideoWizard({
       const id = data.id as string;
 
       for (let i = 0; i < files.length; i++) {
-        const f = files[i];
+        const { file: f, use } = files[i];
         setBusy(`Uploading reference ${i + 1} of ${files.length}: ${f.name}`);
         const pres = await fetch(`/api/videos/${id}/references/presign`, {
           method: "POST",
@@ -74,7 +79,7 @@ export function VideoWizard({
         const conf = await fetch(`/api/videos/${id}/references/confirm`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ key: presData.key }),
+          body: JSON.stringify({ key: presData.key, use }),
         });
         if (!conf.ok) throw new Error(`${f.name}: confirm failed`);
       }
@@ -201,7 +206,9 @@ export function VideoWizard({
             const ok = all.filter(f => f.size <= (f.type.startsWith("video/") ? 100 * 1024 * 1024 : 20 * 1024 * 1024));
             // Each pick ADDS to the list: replacing it meant a client choosing
             // photos one at a time ended up with only the last one (Cardeleine, 2026-09-23).
-            setFiles(prev => [...prev, ...ok.filter(f => !prev.some(p => p.name === f.name && p.size === f.size))]);
+            setFiles(prev => [...prev, ...ok
+              .filter(f => !prev.some(p => p.file.name === f.name && p.file.size === f.size))
+              .map(f => ({ file: f, use: (f.type.startsWith("video/") ? "footage" : "look") as RefUse }))]);
             setFileWarning(ok.length < all.length
               ? `${all.length - ok.length} file(s) skipped: over the size limit (20MB images, 100MB videos).`
               : null);
@@ -210,19 +217,30 @@ export function VideoWizard({
           className="block w-full text-xs text-slate-600 file:mr-2 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-slate-700 hover:file:bg-slate-200"
         />
         <p className="mt-1 text-xs text-slate-500">
-          Clips are used as actual footage: an event, your office, a keynote moment, or a screen recording of
-          your product. Showing a product or an app? Upload a screen recording: AI-generated footage cannot
-          show real screens.{" "}
-          Photos are handed to the image model for the shots they fit: a person, product or place in
-          them is drawn as in the photo.{keyframeReview ? " You check the result on the images you approve before production." : ""}
+          For each file, choose what it is for. A clip can be used as footage (an event, your office, a
+          screen recording of your product) or only as an example of the structure you want. A photo can be
+          shown exactly as it is (a screenshot, your app, a design: a person in it can be animated, the text
+          stays exact) or used as a look reference for the images we draw.
+          {keyframeReview ? " You check every image before production." : ""}
           {" "}You can add several files, at once or one after another.
         </p>
         {fileWarning && <div className="mt-1 text-xs text-amber-600">{fileWarning}</div>}
         {files.length > 0 && (
           <ul className="mt-1 space-y-0.5 text-xs text-slate-600">
-            {files.map((f, i) => (
+            {files.map(({ file: f, use }, i) => (
               <li key={`${f.name}-${f.size}`} className="flex items-center gap-2">
                 <span className="truncate">{f.type.startsWith("video/") ? "🎞" : "🖼"} {f.name}</span>
+                <select value={use} aria-label={`What ${f.name} is for`}
+                  onChange={e => { const v = e.target.value as RefUse; setFiles(prev => prev.map((p, j) => j === i ? { ...p, use: v } : p)); }}
+                  className="rounded border bg-white px-1 py-0.5 text-xs">
+                  {f.type.startsWith("video/") ? (<>
+                    <option value="footage">Use as footage</option>
+                    <option value="example">Only an example (structure)</option>
+                  </>) : (<>
+                    <option value="look">Look reference</option>
+                    <option value="as_is">Show exactly as it is</option>
+                  </>)}
+                </select>
                 <button type="button" onClick={() => setFiles(prev => prev.filter((_, j) => j !== i))}
                   className="text-slate-400 hover:text-red-600">remove</button>
               </li>
