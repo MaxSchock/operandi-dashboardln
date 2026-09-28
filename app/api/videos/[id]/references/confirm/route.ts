@@ -6,6 +6,10 @@ import { headObject } from "@/lib/minio";
 const IMAGE_MAX = 20 * 1024 * 1024;
 const VIDEO_MAX = 100 * 1024 * 1024;
 const AUDIO_MAX = 20 * 1024 * 1024;
+// Same lists as the presign route: what is stored is checked, not what was declared.
+const IMAGE_MIME = new Set(["image/jpeg", "image/png", "image/webp"]);
+const VIDEO_MIME = new Set(["video/mp4", "video/quicktime", "video/webm"]);
+const AUDIO_MIME = new Set(["audio/mpeg", "audio/wav", "audio/x-wav", "audio/ogg", "audio/mp4", "audio/x-m4a", "audio/webm"]);
 
 /**
  * POST /api/videos/:id/references/confirm — after the browser PUT, verify the
@@ -27,8 +31,12 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
   const head = await headObject(key);
   if (!head.exists) return NextResponse.json({ error: "object not found in storage" }, { status: 404 });
-  const isVideo = (head.mime ?? "").startsWith("video/");
-  const isAudio = (head.mime ?? "").startsWith("audio/");
+  const mime = (head.mime ?? "").split(";")[0].trim().toLowerCase();
+  const isVideo = VIDEO_MIME.has(mime);
+  const isAudio = AUDIO_MIME.has(mime);
+  if (!isVideo && !isAudio && !IMAGE_MIME.has(mime)) {
+    return NextResponse.json({ error: `unsupported type ${mime || "unknown"}` }, { status: 400 });
+  }
   if (head.size > (isVideo ? VIDEO_MAX : isAudio ? AUDIO_MAX : IMAGE_MAX)) {
     return NextResponse.json({ error: "stored object exceeds the size limit" }, { status: 413 });
   }
@@ -38,6 +46,16 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   // videos add the phone clip (screen_clip), the app screenshot (screen), the
   // logo for the end card and one recording per line (meta.line).
   const use = String(body.use ?? "");
+  // A file that does not match what it is for is refused, not reclassified:
+  // an image sent as the phone clip would otherwise become a look reference.
+  const needs: Record<string, "video" | "image" | "audio"> = {
+    screen_clip: "video", footage: "video", example: "video",
+    screen: "image", logo: "image", look: "image", as_is: "image", line: "audio",
+  };
+  const got = isVideo ? "video" : isAudio ? "audio" : "image";
+  if (needs[use] && needs[use] !== got) {
+    return NextResponse.json({ error: `a ${use.replace("_", " ")} must be ${needs[use] === "image" ? "an" : "a"} ${needs[use]}, this file is ${got === "image" ? "an" : "a"} ${got}` }, { status: 400 });
+  }
   let kind: "reference_video" | "reference_image" | "reference_audio" | "logo";
   let meta: Record<string, unknown>;
   if (isAudio) {

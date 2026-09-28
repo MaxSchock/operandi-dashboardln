@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serviceRoleClient } from "@/lib/supabase/server";
-import { resolveVideoActor, loadOwnedRequest, addEvent } from "@/lib/videos";
+import { resolveVideoActor, loadOwnedRequest } from "@/lib/videos";
 import { MAX_SCENE_REDOS, sceneRedoCostUsd, type RedoWhat } from "@/lib/video-dialogue";
 
 const WHAT = new Set<RedoWhat>(["image", "motion", "voice"]);
@@ -40,27 +40,23 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     return NextResponse.json({ error: "a scene with your app has no drawn image; redo its movement instead" }, { status: 400 });
   }
 
-  const svc = serviceRoleClient();
-  const { count } = await svc.from("video_events").select("id", { count: "exact", head: true })
-    .eq("request_id", request.id).eq("event_type", "shot_redo_requested");
-  if ((count ?? 0) >= MAX_SCENE_REDOS) {
-    return NextResponse.json({ error: `this video already used its ${MAX_SCENE_REDOS} scene redos` }, { status: 409 });
-  }
+  // Limit, budget, event and status in one locked transaction: two clicks
+  // cannot both pass, and the engine never reads an event that lost.
   const estimate = sceneRedoCostUsd(scene.kind ?? "persona", what);
-  const { data: spend } = await svc.rpc("video_spend_status", { p_request: request.id });
-  const s = (spend ?? {}) as { spent_usd?: number; cap_usd?: number; this_request_usd?: number };
-  if (s.cap_usd && Number(s.spent_usd ?? 0) + Number(s.this_request_usd ?? 0) + estimate > Number(s.cap_usd)) {
-    return NextResponse.json({ error: "The monthly production budget for your account is used up. Ask Max if you need more." }, { status: 402 });
-  }
-
-  // The event first: the engine reads the latest one when it picks the job up.
-  await addEvent(request.id, "shot_redo_requested", actor, { shot, what, notes, estimated_usd: estimate });
-  const upd = await svc.from("video_requests")
-    .update({ status: "redo_requested", error: null, updated_at: new Date().toISOString() })
-    .eq("id", request.id).eq("status", "delivered").select("id");
-  if (upd.error) return NextResponse.json({ error: upd.error.message }, { status: 500 });
-  if (!upd.data?.length) {
-    return NextResponse.json({ error: "the video changed status while you were writing" }, { status: 409 });
+  const { data, error: rpcError } = await serviceRoleClient().rpc("video_request_redo", {
+    p_request: request.id, p_shot: shot, p_what: what, p_notes: notes, p_estimate: estimate,
+    p_actor: actor.tier.isAdmin ? "admin" : "client", p_actor_id: actor.tier.userId, p_max: MAX_SCENE_REDOS,
+  });
+  if (rpcError) return NextResponse.json({ error: rpcError.message }, { status: 500 });
+  const verdict = (data ?? {}) as { ok?: boolean; reason?: string };
+  if (!verdict.ok) {
+    const msg: Record<string, [string, number]> = {
+      status: ["the video changed status while you were writing", 409],
+      redo_limit: [`this video already used its ${MAX_SCENE_REDOS} scene redos`, 409],
+      monthly_cap_reached: ["The monthly production budget for your account is used up. Ask Max if you need more.", 402],
+    };
+    const [m, code] = msg[verdict.reason ?? ""] ?? ["not found", 404];
+    return NextResponse.json({ error: m }, { status: code });
   }
 
   if (ct.includes("application/json")) return NextResponse.json({ ok: true });

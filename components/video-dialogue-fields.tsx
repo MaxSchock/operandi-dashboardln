@@ -1,12 +1,12 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CHANGER_VOICES, MAX_LINES, MAX_LINE_CHARS, dialogueCostUsd, dialogueSeconds, lineSeconds,
   type DialogueKind, type DialogueLine,
 } from "@/lib/video-dialogue";
 
-export type DialogueRow = DialogueLine & { recording: File | null };
+export type DialogueRow = DialogueLine & { id: string; recording: File | null };
 export type DialogueState = {
   lines: DialogueRow[];
   screenClip: File | null;
@@ -21,7 +21,7 @@ export function emptyDialogue(): DialogueState {
 }
 
 function newRow(kind: DialogueKind, speaker = ""): DialogueRow {
-  return { speaker, text: "", kind, to_phone: false, voice: null, clip_start_s: null, badge: null, recording: null };
+  return { id: crypto.randomUUID(), speaker, text: "", kind, to_phone: false, voice: null, clip_start_s: null, badge: null, recording: null };
 }
 
 const KIND_LABEL: Record<DialogueKind, string> = {
@@ -60,7 +60,7 @@ export function DialogueFields({
     <div className="space-y-4">
       <div className="space-y-3">
         {value.lines.map((row, i) => (
-          <div key={i} className="rounded-md border border-slate-200 p-3">
+          <div key={row.id} className="rounded-md border border-slate-200 p-3">
             <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
               <span className="font-semibold text-navy">Scene {i + 1}</span>
               <select value={row.kind} aria-label={`Who appears in scene ${i + 1}`}
@@ -197,11 +197,25 @@ function Recorder({ n, file, onChange }: { n: number; file: File | null; onChang
   const [err, setErr] = useState<string | null>(null);
   const rec = useRef<MediaRecorder | null>(null);
   const pick = useRef<HTMLInputElement | null>(null);
+  const url = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
+  useEffect(() => () => { if (url) URL.revokeObjectURL(url); }, [url]);
+  const alive = useRef(true);
+  // Leaving the form mid-recording must release the microphone.
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+    alive.current = false;
+    const mr = rec.current;
+    if (mr) { mr.onstop = null; if (mr.state !== "inactive") mr.stop(); mr.stream.getTracks().forEach(t => t.stop()); }
+    };
+  }, []);
 
   async function start() {
     setErr(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // The form may be gone by the time the browser grants the microphone.
+      if (!alive.current) { stream.getTracks().forEach(t => t.stop()); return; }
       const mr = new MediaRecorder(stream);
       const chunks: Blob[] = [];
       mr.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
@@ -223,7 +237,7 @@ function Recorder({ n, file, onChange }: { n: number; file: File | null; onChang
   if (file) {
     return (
       <span className="flex items-center gap-2">
-        <audio controls src={URL.createObjectURL(file)} className="h-7" />
+        <audio controls src={url ?? undefined} className="h-7" />
         <button type="button" onClick={() => onChange(null)} className="text-slate-400 hover:text-red-600">record again</button>
       </span>
     );

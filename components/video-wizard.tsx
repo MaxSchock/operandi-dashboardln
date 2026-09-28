@@ -68,7 +68,7 @@ export function VideoWizard({
       topic_pillar: fd.get("topic_pillar"),
       cta_style: fd.get("cta_style"),
       ...(isDialogue ? {
-        lines: dialogue.lines.filter(l => l.text.trim()).map(({ recording: _r, ...l }) => l),
+        lines: dialogue.lines.filter(l => l.text.trim()).map(({ recording: _r, id: _id, ...l }) => l),
         end_url: dialogue.endUrl,
       } : {}),
     };
@@ -114,6 +114,9 @@ export function VideoWizard({
         if (!conf.ok) throw new Error(`${f.name}: confirm failed`);
       }
 
+      const sub = await fetch(`/api/videos/${id}/submit`, { method: "POST" });
+      if (!sub.ok) throw new Error((await sub.json()).error ?? `submit failed (${sub.status})`);
+
       setBusy("Done, opening your request...");
       router.push(`/videos/${id}`);
     } catch (err) {
@@ -150,7 +153,7 @@ export function VideoWizard({
             Talking head: you speaking to camera{voiceAvailable ? "" : " (locked: your voice clone is not connected yet)"}
           </option>
         </select>
-        <p className="mt-1 text-xs text-slate-500">
+        <p className={`mt-1 text-xs text-slate-500 ${isDialogue ? "hidden" : ""}`}>
           Real footage performs best on LinkedIn: if you upload clips below, we build the video around them.
           {!voiceAvailable && " Talking head needs your voice clone connected first (write to us and we set it up). In the meantime, upload a clip of yourself talking and pick Scenes: the storyboard builds the video around your own footage."}
         </p>

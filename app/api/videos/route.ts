@@ -74,7 +74,9 @@ export async function POST(req: NextRequest) {
   const { data, error: dbError } = await svc.from("video_requests").insert({
     client_slug: actor.clientSlug,
     content_slug: actor.contentSlug,
-    status: "storyboard_pending",
+    // Draft until the browser has uploaded and confirmed the files (submit
+    // route): the engine must not write a storyboard from half the material.
+    status: "draft",
     brief: {
       goal, key_message: keyMessage, cta, style, language,
       visual_directions: visualDirections, linked_post_id: linkedPostId || null, voice,

@@ -8,6 +8,7 @@ import { Card, CardHeader, CardBody, Badge, EmptyState } from "@/components/ui";
 import { getTier } from "@/lib/tier";
 import { VideoStatusPoller } from "@/components/video-status-poller";
 import { SceneRedo } from "@/components/video-scene-redo";
+import { SubmitDraft } from "@/components/video-submit-draft";
 import { MAX_SCENE_REDOS } from "@/lib/video-dialogue";
 
 export const dynamic = "force-dynamic";
@@ -44,7 +45,7 @@ type Asset = { id: string; kind: string; storage_key: string; mime: string | nul
 type Ev = { id: number; event_type: string; actor: string; payload: Record<string, unknown> | null; created_at: string };
 
 const STATUS_TONE: Record<string, "slate" | "green" | "amber" | "red" | "electric"> = {
-  storyboard_pending: "amber", storyboard_ready: "electric", storyboard_approved: "electric",
+  draft: "slate", storyboard_pending: "amber", storyboard_ready: "electric", storyboard_approved: "electric",
   keyframes_generating: "amber", keyframes_ready: "electric",
   queued: "amber", rendering: "amber", delivered: "green", edit_requested: "amber",
   recomposing: "amber", redo_requested: "amber", redoing: "amber", approved: "green", published: "green", rejected: "slate",
@@ -298,6 +299,13 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
               </>
             )}
           </CardBody>
+        </Card>
+      )}
+
+      {r.status === "draft" && (
+        <Card>
+          <CardHeader title="Not started yet" />
+          <CardBody><SubmitDraft videoId={r.id} /></CardBody>
         </Card>
       )}
 

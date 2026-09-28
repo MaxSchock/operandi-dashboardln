@@ -23,6 +23,7 @@ type Row = {
 };
 
 const STATUS_TONE: Record<string, "slate" | "green" | "amber" | "red" | "electric"> = {
+  draft: "slate",
   storyboard_pending: "amber",
   storyboard_ready: "electric",
   storyboard_approved: "electric",
@@ -41,6 +42,7 @@ const STATUS_TONE: Record<string, "slate" | "green" | "amber" | "red" | "electri
 };
 
 const STATUS_LABEL: Record<string, string> = {
+  draft: "Upload not finished",
   storyboard_pending: "Writing storyboard",
   storyboard_ready: "Storyboard ready for you",
   storyboard_approved: "Approved, queueing",
