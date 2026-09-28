@@ -127,6 +127,8 @@ type BoardShot = { recipe?: string | null; source_ref?: string | null };
  * requests go through the keyframe review; everything else is produced
  * straight from the script, as before. Mirrors keyframes.build_for_request. */
 export function needsKeyframes(brief: Record<string, unknown>, storyboard: Record<string, unknown> | null): boolean {
+  // Dialogue: people are drawn, screens get a free preview; always reviewed.
+  if (brief?.style === "dialogue") return true;
   if (brief?.style !== "broll") return false;
   const shots = ((storyboard?.shots as BoardShot[] | undefined) ?? []);
   return shots.some(s => (s.recipe === "image" || s.recipe === "first_last") && !s.source_ref);
@@ -143,7 +145,8 @@ export type Keyframe = {
   status: "proposed" | "approved" | "rejected" | "failed";
   version: number;
   notes: string | null;
-  qc: { ok?: boolean; reason?: string } | null;
+  qc: { ok?: boolean; reason?: string; hint?: string } | null;
+  model?: string | null;
 };
 
 /** The image that stands for each (shot, role): its latest version. Earlier

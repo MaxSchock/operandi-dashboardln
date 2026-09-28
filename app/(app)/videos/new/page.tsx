@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, serviceRoleClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardBody, EmptyState } from "@/components/ui";
 import { getTier } from "@/lib/tier";
 import { resolveVideoActor } from "@/lib/videos";
@@ -40,6 +40,15 @@ export default async function NewVideoPage() {
 
   const voiceAvailable = !!actor.features.voice_consent_at;
 
+  // People who can appear in a dialogue: the client's approved character sheets.
+  const { data: chars } = await serviceRoleClient().from("video_characters")
+    .select("name, voice_sample_key, version").eq("client_slug", actor.clientSlug).eq("status", "approved")
+    .order("version", { ascending: false });
+  const characters: { name: string; hasVoice: boolean }[] = [];
+  for (const c of (chars ?? []) as { name: string; voice_sample_key: string | null }[]) {
+    if (!characters.some(x => x.name === c.name)) characters.push({ name: c.name, hasVoice: !!c.voice_sample_key && voiceAvailable });
+  }
+
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
@@ -62,6 +71,7 @@ export default async function NewVideoPage() {
             voiceAvailable={voiceAvailable}
             linkedPosts={linkedPosts}
             keyframeReview={actor.features.video_keyframe_review}
+            characters={characters}
           />
         </CardBody>
       </Card>

@@ -5,7 +5,17 @@ import { presignPut } from "@/lib/minio";
 
 const IMAGE_MAX = 20 * 1024 * 1024;
 const VIDEO_MAX = 100 * 1024 * 1024;
-const MIME_ALLOW: Record<string, "reference_image" | "reference_video"> = {
+const AUDIO_MAX = 20 * 1024 * 1024;
+// Audio: a recording of one line of a dialogue video (browser recorder gives
+// webm or mp4, a WhatsApp voice note is ogg).
+const MIME_ALLOW: Record<string, "reference_image" | "reference_video" | "reference_audio"> = {
+  "audio/mpeg": "reference_audio",
+  "audio/wav": "reference_audio",
+  "audio/x-wav": "reference_audio",
+  "audio/ogg": "reference_audio",
+  "audio/mp4": "reference_audio",
+  "audio/x-m4a": "reference_audio",
+  "audio/webm": "reference_audio",
   "image/jpeg": "reference_image",
   "image/png": "reference_image",
   "image/webp": "reference_image",
@@ -33,12 +43,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
   const body = await req.json();
   const filename = String(body.filename ?? "file").replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
-  const mime = String(body.mime ?? "");
+  // "audio/webm;codecs=opus" from the recorder: the codec does not matter here.
+  const mime = String(body.mime ?? "").split(";")[0].trim().toLowerCase();
   const size = Number(body.size ?? 0);
 
   const kind = MIME_ALLOW[mime];
   if (!kind) return NextResponse.json({ error: `unsupported type ${mime}` }, { status: 400 });
-  const max = kind === "reference_image" ? IMAGE_MAX : VIDEO_MAX;
+  const max = kind === "reference_image" ? IMAGE_MAX : kind === "reference_audio" ? AUDIO_MAX : VIDEO_MAX;
   if (!size || size > max) {
     return NextResponse.json({ error: `file too large (max ${Math.round(max / 1024 / 1024)}MB)` }, { status: 413 });
   }

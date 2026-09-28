@@ -7,11 +7,13 @@ import { latestKeyframes, clientRedraws, needsKeyframes, MAX_KEYFRAME_REDRAWS, t
 import { Card, CardHeader, CardBody, Badge, EmptyState } from "@/components/ui";
 import { getTier } from "@/lib/tier";
 import { VideoStatusPoller } from "@/components/video-status-poller";
+import { SceneRedo } from "@/components/video-scene-redo";
+import { MAX_SCENE_REDOS } from "@/lib/video-dialogue";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-type Shot = { n?: number; description?: string; duration_s?: number; text_overlay?: string; asset?: string; recipe?: string | null; source_ref?: string | null; line?: { speaker?: string; text?: string } | null };
+type Shot = { n?: number; kind?: string; description?: string; duration_s?: number; text_overlay?: string; asset?: string; recipe?: string | null; source_ref?: string | null; line?: { speaker?: string; text?: string } | null };
 type Storyboard = {
   script?: string;
   shots?: Shot[];
@@ -31,6 +33,7 @@ type Req = {
   storyboard_notes: string | null;
   regen_of: string | null;
   consumed_credit: boolean;
+  cost_estimated_usd: number | null;
   deliverable_key: string | null;
   deliverable_version: number;
   error: string | null;
@@ -44,7 +47,7 @@ const STATUS_TONE: Record<string, "slate" | "green" | "amber" | "red" | "electri
   storyboard_pending: "amber", storyboard_ready: "electric", storyboard_approved: "electric",
   keyframes_generating: "amber", keyframes_ready: "electric",
   queued: "amber", rendering: "amber", delivered: "green", edit_requested: "amber",
-  recomposing: "amber", approved: "green", published: "green", rejected: "slate",
+  recomposing: "amber", redo_requested: "amber", redoing: "amber", approved: "green", published: "green", rejected: "slate",
   failed: "red", closed: "slate",
 };
 
@@ -58,13 +61,13 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
     sb.from("video_requests").select("*").eq("id", id).maybeSingle(),
     sb.from("video_assets").select("id, kind, storage_key, mime, size_bytes, meta").eq("request_id", id).order("created_at"),
     sb.from("video_events").select("id, event_type, actor, payload, created_at").eq("request_id", id).order("created_at", { ascending: false }).limit(30),
-    sb.from("video_keyframes").select("id, shot_n, role, storage_key, status, version, notes, qc").eq("request_id", id),
+    sb.from("video_keyframes").select("id, shot_n, role, storage_key, status, version, notes, qc, model").eq("request_id", id),
   ]);
   const r = reqData as Req | null;
   if (!r) notFound();
   const assets = (assetData ?? []) as Asset[];
   const events = (evData ?? []) as Ev[];
-  const refs = assets.filter(a => a.kind.startsWith("reference_"));
+  const refs = assets.filter(a => a.kind.startsWith("reference_") || a.kind === "logo");
   const act = `/api/videos/${r.id}`;
   // Parts that failed in the latest production run but did not stop delivery.
   // Events come newest first, so everything before the latest render_started is that run.
@@ -91,6 +94,9 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
   const kfToRedraw = kfLatest.filter(k => k.status === "rejected").length;
   const kfAllApproved = kfLatest.length > 0 && kfLatest.every(k => k.status === "approved");
   const imagesFailed = r.status === "failed" && !!r.error && /^(images could not be drawn|cannot draw the images)/.test(r.error);
+  const isDialogue = r.brief?.style === "dialogue";
+  const redosLeft = MAX_SCENE_REDOS - events.filter(e => e.event_type === "shot_redo_requested").length;
+  const lastRedo = events.find(e => ["shot_redone", "shot_redo_failed"].includes(e.event_type));
   const brief = r.brief as { goal?: string; key_message?: string; cta?: string; style?: string; language?: string; voice?: boolean; visual_directions?: string };
 
   return (
@@ -130,11 +136,19 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
         </div>
       )}
 
-      {["queued", "rendering", "recomposing", "edit_requested"].includes(r.status) && (
+      {["queued", "rendering", "recomposing", "edit_requested", "redo_requested", "redoing"].includes(r.status) && (
         <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
           {r.status === "queued" || r.status === "rendering"
             ? "In production: this usually takes 15-45 minutes. This page refreshes itself."
-            : "Applying your edit: usually just a few minutes. This page refreshes itself."}
+            : r.status === "redo_requested" || r.status === "redoing"
+              ? "Redoing the scene: usually 5-15 minutes. The rest of the video is kept. This page refreshes itself."
+              : "Applying your edit: usually just a few minutes. This page refreshes itself."}
+        </div>
+      )}
+
+      {r.status === "delivered" && r.error && lastRedo?.event_type === "shot_redo_failed" && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+          The scene could not be redone; the video below is the previous version. Detail: {r.error}
         </div>
       )}
 
@@ -187,12 +201,13 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
                         <div className="mb-2 text-xs text-slate-700">
                           <span className="font-medium text-navy">Shot #{n}</span>
                           {shot?.duration_s ? ` · ${shot.duration_s}s` : ""}{shot?.description ? ` · ${shot.description}` : ""}
+                          {shot?.line?.text && <div className="mt-0.5 text-slate-500">{shot.line.speaker || "Speaker"}: “{shot.line.text}”</div>}
                         </div>
                         <div className="flex flex-wrap gap-4">
                           {kfLatest.filter(k => k.shot_n === n).map(k => {
                             const redrawsLeft = MAX_KEYFRAME_REDRAWS - clientRedraws(kfRows, k.shot_n, k.role);
                             return (
-                              <div key={k.id} className="w-full max-w-[220px] space-y-2">
+                              <div key={k.id} className={`w-full space-y-2 ${k.model === "screen_preview" ? "max-w-[320px]" : "max-w-[220px]"}`}>
                                 <div className="flex items-center justify-between text-[11px] text-slate-500">
                                   <span>{k.role === "start" ? "Start" : "End"} · v{k.version}</span>
                                   <Badge tone={k.status === "approved" ? "green" : k.status === "rejected" ? "amber" : "slate"}>
@@ -208,6 +223,14 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
                                 ) : (
                                   <div className="rounded-md border bg-slate-50 p-3 text-[11px] text-slate-400">Image not available</div>
                                 )}
+                                {k.model === "screen_preview" && (
+                                  <p className="text-[11px] text-slate-500">
+                                    Left: where your phone clip starts. Right: what its screen will show, with the person in the app saying the line.
+                                  </p>
+                                )}
+                                {k.qc?.hint && k.status !== "rejected" && (
+                                  <div className="rounded-md bg-amber-50 p-2 text-[11px] text-amber-800">Worth a look: {k.qc.hint}</div>
+                                )}
                                 {k.status === "rejected" && k.notes && (
                                   <div className="rounded-md bg-amber-50 p-2 text-[11px] text-amber-800">Change asked: {k.notes}</div>
                                 )}
@@ -219,7 +242,7 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
                                     </button>
                                   </form>
                                 )}
-                                {k.status !== "rejected" && (
+                                {k.status !== "rejected" && k.model !== "screen_preview" && (
                                   redrawsLeft > 0 ? (
                                     <details>
                                       <summary className="cursor-pointer text-[11px] font-medium text-slate-600 hover:text-slate-800">
@@ -308,6 +331,7 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
                     {r.storyboard.shots!.map((s, i) => (
                       <li key={i} className="rounded-md border p-3 text-xs text-slate-700">
                         <span className="font-medium text-navy">#{s.n ?? i + 1}</span>
+                        {isDialogue && s.kind ? ` · ${({ ceo: "to camera", persona: "invented person", pantalla: "your app on the phone" } as Record<string, string>)[s.kind] ?? s.kind}` : ""}
                         {s.duration_s ? ` · ${s.duration_s}s` : ""} · {s.description ?? ""}
                         {s.line?.text && (
                           <div className="mt-1 text-slate-700">
@@ -336,6 +360,7 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
                   {keyframeReview ? "Approve storyboard and draw the images" : "Approve storyboard and start production"}
                 </button>
                 <p className="mt-1 text-[11px] text-slate-400">
+                  {isDialogue && r.cost_estimated_usd ? `Estimated production cost: $${Number(r.cost_estimated_usd).toFixed(2)}. ` : ""}
                   {keyframeReview
                     ? "Next you see and approve an image of every shot. Nothing is produced and no credit is used until you approve the images."
                     : <>This uses your video slot for the week{r.regen_of ? " (paid regeneration)" : ""}. Free edits stay unlimited after delivery.</>}
@@ -382,6 +407,20 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
               </form>
             </details>
 
+            {isDialogue && (
+              <details>
+                <summary className="cursor-pointer text-xs font-medium text-slate-600 hover:text-slate-800">
+                  Redo one scene (new image, movement or voice)
+                </summary>
+                <div className="mt-2">
+                  <SceneRedo videoId={r.id} redosLeft={redosLeft}
+                    scenes={(r.storyboard?.shots ?? []).map((s, i) => ({
+                      n: Number(s.n ?? i + 1), kind: s.kind ?? "persona",
+                      speaker: s.line?.speaker ?? "", text: s.line?.text ?? "" }))} />
+                </div>
+              </details>
+            )}
+
             {!r.regen_of && (
               <details>
                 <summary className="cursor-pointer text-xs font-medium text-slate-600 hover:text-slate-800">
@@ -409,8 +448,8 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
           <CardHeader title="Brief" />
           <CardBody className="space-y-2 text-xs text-slate-700">
             <div><span className="font-medium">Goal:</span> {brief.goal}</div>
-            <div><span className="font-medium">Key message:</span> {brief.key_message}</div>
-            <div><span className="font-medium">CTA:</span> {brief.cta}</div>
+            {brief.key_message && <div><span className="font-medium">Key message:</span> {brief.key_message}</div>}
+            {brief.cta && <div><span className="font-medium">CTA:</span> {brief.cta}</div>}
             {brief.visual_directions && <div><span className="font-medium">Visual directions:</span> {brief.visual_directions}</div>}
             {refs.length > 0 && (
               <div className="pt-2">
@@ -418,9 +457,10 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
                 <ul className="space-y-1">
                   {refs.map(a => (
                     <li key={a.id} className="text-slate-600">
-                      {a.kind === "reference_video" ? "🎞" : "🖼"} {a.storage_key.split("/").pop()}
+                      {a.kind === "reference_video" ? "🎞" : a.kind === "reference_audio" ? "🎙" : "🖼"} {a.storage_key.split("/").pop()}
                       {a.size_bytes ? ` · ${(a.size_bytes / 1024 / 1024).toFixed(1)}MB` : ""}
-                      {" · "}{({ as_is: "shown as it is", example: "example only", footage: "footage", look: "look reference" } as Record<string, string>)[
+                      {" · "}{({ as_is: "shown as it is", example: "example only", footage: "footage", look: "look reference",
+                        screen_clip: "phone clip", screen: "app screen", line: `recording of line ${(a.meta as { line?: number } | null)?.line ?? ""}` } as Record<string, string>)[
                         a.meta?.use ?? (a.kind === "reference_video" ? "footage" : "look")] ?? ""}
                     </li>
                   ))}

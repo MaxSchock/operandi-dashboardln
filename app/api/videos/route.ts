@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serviceRoleClient } from "@/lib/supabase/server";
 import { resolveVideoActor, addEvent, estimateCostUsd } from "@/lib/videos";
+import { parseLines, dialogueSeconds, dialogueCostUsd, type DialogueLine } from "@/lib/video-dialogue";
 
-const STYLES = new Set(["typography", "broll", "talking_head"]);
+const STYLES = new Set(["typography", "broll", "talking_head", "dialogue"]);
 const LANGS = new Set(["en", "de", "fr", "nl", "es"]);
 const ASPECTS = new Set(["9:16", "1:1", "16:9"]);
 const HOOKS = new Set(["Bold claim", "Question", "Surprising stat", "Story opening"]);
@@ -35,21 +36,33 @@ export async function POST(req: NextRequest) {
   const language = String(body.language ?? "").trim();
   const visualDirections = String(body.visual_directions ?? "").trim();
   const linkedPostId = String(body.linked_post_id ?? "").trim();
-  const durationS = Number(body.duration_s ?? 0);
+  let durationS = Number(body.duration_s ?? 0);
   const voice = body.voice === true || body.voice === "true" || body.voice === "on";
   const aspect = ASPECTS.has(String(body.aspect)) ? String(body.aspect) : "9:16";
   const hookType = HOOKS.has(String(body.hook_type)) ? String(body.hook_type) : null;
   const topicPillar = PILLARS.has(String(body.topic_pillar)) ? String(body.topic_pillar) : null;
   const ctaStyle = CTA_STYLES.has(String(body.cta_style)) ? String(body.cta_style) : null;
 
-  if (!goal || !keyMessage || !cta) {
+  if (!STYLES.has(style)) return NextResponse.json({ error: "invalid style" }, { status: 400 });
+  // A dialogue video carries its message in the client's own lines: goal is
+  // enough, and its length comes from the lines, not from a number typed in.
+  let lines: DialogueLine[] = [];
+  const endUrl = String(body.end_url ?? "").trim().slice(0, 80);
+  if (style === "dialogue") {
+    const parsed = parseLines(body.lines);
+    if (parsed.error) return NextResponse.json({ error: parsed.error }, { status: 400 });
+    lines = parsed.lines;
+    durationS = dialogueSeconds(lines);
+  }
+  if (!goal || (style !== "dialogue" && (!keyMessage || !cta))) {
     return NextResponse.json({ error: "goal, key_message and cta are required" }, { status: 400 });
   }
-  if (!STYLES.has(style)) return NextResponse.json({ error: "invalid style" }, { status: 400 });
   if (!LANGS.has(language)) return NextResponse.json({ error: "invalid language" }, { status: 400 });
   if (!Number.isInteger(durationS) || durationS < 3 || durationS > actor.features.video_max_duration_s) {
     return NextResponse.json(
-      { error: `duration must be 3-${actor.features.video_max_duration_s} seconds` },
+      { error: style === "dialogue"
+        ? `the lines add up to about ${durationS} seconds; your plan allows ${actor.features.video_max_duration_s}. Shorten or remove a line.`
+        : `duration must be 3-${actor.features.video_max_duration_s} seconds` },
       { status: 400 },
     );
   }
@@ -65,15 +78,21 @@ export async function POST(req: NextRequest) {
     brief: {
       goal, key_message: keyMessage, cta, style, language,
       visual_directions: visualDirections, linked_post_id: linkedPostId || null, voice,
-      aspect, hook_type: hookType, topic_pillar: topicPillar, cta_style: ctaStyle,
+      aspect: style === "dialogue" ? "9:16" : aspect, hook_type: hookType, topic_pillar: topicPillar, cta_style: ctaStyle,
+      ...(style === "dialogue" ? {
+        lines, end_url: endUrl || null, music: body.music !== false,
+        // The engine converts a recording into a real person's voice only with
+        // this: the consent recorded for the client, never a checkbox.
+        voice_consent: !!actor.features.voice_consent_at,
+      } : {}),
     },
     duration_s: durationS,
-    cost_estimated_usd: estimateCostUsd(style, durationS, voice),
+    cost_estimated_usd: style === "dialogue" ? dialogueCostUsd(lines) : estimateCostUsd(style, durationS, voice),
     created_by: actor.tier.userId,
   }).select("id").single();
   if (dbError) return NextResponse.json({ error: dbError.message }, { status: 500 });
 
-  await addEvent(data.id, "created", actor, { style, duration_s: durationS, voice });
+  await addEvent(data.id, "created", actor, { style, duration_s: durationS, voice, lines: lines.length || undefined });
 
   if (ct.includes("application/json")) return NextResponse.json({ id: data.id });
   return NextResponse.redirect(new URL(`/videos/${data.id}`, req.url), 303);

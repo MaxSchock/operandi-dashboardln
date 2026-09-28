@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { DialogueFields, emptyDialogue, type DialogueCharacter, type DialogueState } from "@/components/video-dialogue-fields";
+import { dialogueSeconds } from "@/lib/video-dialogue";
 
 type LinkedPost = { id: string; label: string };
 /** What an upload is for. Images: shown exactly as uploaded, or a look
@@ -20,23 +22,37 @@ export function VideoWizard({
   voiceAvailable,
   linkedPosts,
   keyframeReview = false,
+  characters = [],
 }: {
   maxDurationS: number;
   voiceAvailable: boolean;
   linkedPosts: LinkedPost[];
   /** Client approves an image of every shot before production (client_features.video_keyframe_review). */
   keyframeReview?: boolean;
+  /** Approved character sheets of this client (people who can appear in a dialogue). */
+  characters?: DialogueCharacter[];
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [files, setFiles] = useState<RefFile[]>([]);
   const [fileWarning, setFileWarning] = useState<string | null>(null);
+  const [style, setStyle] = useState("broll");
+  const [dialogue, setDialogue] = useState<DialogueState>(emptyDialogue);
+  const isDialogue = style === "dialogue";
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
     const fd = new FormData(e.currentTarget);
+    if (isDialogue) {
+      const filled = dialogue.lines.filter(l => l.text.trim());
+      if (!filled.length) { setError("Write at least one line."); return; }
+      if (dialogueSeconds(filled) > maxDurationS) { setError(`The lines are longer than ${maxDurationS} seconds.`); return; }
+      if (filled.some(l => l.kind === "pantalla") && (!dialogue.screenClip || !dialogue.screenshot)) {
+        setError("A scene with your app needs the phone clip and the screenshot."); return;
+      }
+    }
     const body = {
       goal: fd.get("goal"),
       key_message: fd.get("key_message"),
@@ -51,7 +67,21 @@ export function VideoWizard({
       hook_type: fd.get("hook_type"),
       topic_pillar: fd.get("topic_pillar"),
       cta_style: fd.get("cta_style"),
+      ...(isDialogue ? {
+        lines: dialogue.lines.filter(l => l.text.trim()).map(({ recording: _r, ...l }) => l),
+        end_url: dialogue.endUrl,
+      } : {}),
     };
+    // What gets uploaded after the request exists, and what each file is for.
+    const uploads: { file: File; use: string; line?: number }[] = files.map(f => ({ file: f.file, use: f.use }));
+    if (isDialogue) {
+      dialogue.lines.filter(l => l.text.trim()).forEach((l, i) => {
+        if (l.recording) uploads.push({ file: l.recording, use: "line", line: i + 1 });
+      });
+      if (dialogue.screenClip) uploads.push({ file: dialogue.screenClip, use: "screen_clip" });
+      if (dialogue.screenshot) uploads.push({ file: dialogue.screenshot, use: "screen" });
+      if (dialogue.logo) uploads.push({ file: dialogue.logo, use: "logo" });
+    }
 
     try {
       setBusy("Creating request...");
@@ -64,9 +94,9 @@ export function VideoWizard({
       if (!res.ok) throw new Error(data.error ?? `error ${res.status}`);
       const id = data.id as string;
 
-      for (let i = 0; i < files.length; i++) {
-        const { file: f, use } = files[i];
-        setBusy(`Uploading reference ${i + 1} of ${files.length}: ${f.name}`);
+      for (let i = 0; i < uploads.length; i++) {
+        const { file: f, use, line } = uploads[i];
+        setBusy(`Uploading file ${i + 1} of ${uploads.length}: ${f.name}`);
         const pres = await fetch(`/api/videos/${id}/references/presign`, {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -74,12 +104,12 @@ export function VideoWizard({
         });
         const presData = await pres.json();
         if (!pres.ok) throw new Error(`${f.name}: ${presData.error ?? pres.status}`);
-        const put = await fetch(presData.url, { method: "PUT", headers: { "content-type": f.type }, body: f });
+        const put = await fetch(presData.url, { method: "PUT", headers: { "content-type": presData.mime ?? f.type }, body: f });
         if (!put.ok) throw new Error(`${f.name}: upload failed (${put.status})`);
         const conf = await fetch(`/api/videos/${id}/references/confirm`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ key: presData.key, use }),
+          body: JSON.stringify({ key: presData.key, use, line }),
         });
         if (!conf.ok) throw new Error(`${f.name}: confirm failed`);
       }
@@ -99,6 +129,7 @@ export function VideoWizard({
           className="w-full rounded-md border bg-white px-2 py-1.5 text-sm" />
       </Field>
 
+      {!isDialogue && (<>
       <Field label="Key message (one sentence the viewer must remember)" required>
         <textarea name="key_message" required rows={2} maxLength={400}
           className="w-full rounded-md border bg-white px-2 py-1.5 text-sm" />
@@ -108,10 +139,12 @@ export function VideoWizard({
         <input name="cta" required maxLength={120} placeholder="e.g. Comment 'speed' and I'll send the checklist"
           className="w-full rounded-md border bg-white px-2 py-1.5 text-sm" />
       </Field>
+      </>)}
 
       <Field label="Style" required>
-        <select name="style" required defaultValue="broll" className="w-full rounded-md border bg-white px-2 py-1.5 text-sm">
+        <select name="style" required value={style} onChange={e => setStyle(e.target.value)} className="w-full rounded-md border bg-white px-2 py-1.5 text-sm">
           <option value="broll">Scenes: your uploaded clips plus AI footage, narrator voiceover, captions (recommended)</option>
+          <option value="dialogue">Dialogue: you write who says what, line by line (people and your app talking)</option>
           <option value="typography">Text-driven: animated text cards, music, no voice</option>
           <option value="talking_head" disabled={!voiceAvailable}>
             Talking head: you speaking to camera{voiceAvailable ? "" : " (locked: your voice clone is not connected yet)"}
@@ -124,10 +157,10 @@ export function VideoWizard({
       </Field>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Field label={`Duration (3-${maxDurationS}s, 15-30s recommended)`} required>
+        {!isDialogue && <Field label={`Duration (3-${maxDurationS}s, 15-30s recommended)`} required>
           <input name="duration_s" type="number" min={3} max={maxDurationS} defaultValue={Math.min(30, maxDurationS)} required
             className="w-full rounded-md border bg-white px-2 py-1.5 text-sm" />
-        </Field>
+        </Field>}
         <Field label="Language" required>
           <select name="language" required className="w-full rounded-md border bg-white px-2 py-1.5 text-sm">
             <option value="en">English</option>
@@ -137,16 +170,22 @@ export function VideoWizard({
             <option value="es">Spanish</option>
           </select>
         </Field>
-        <Field label="Format" required>
+        {!isDialogue && <Field label="Format" required>
           <select name="aspect" required defaultValue="9:16" className="w-full rounded-md border bg-white px-2 py-1.5 text-sm">
             <option value="9:16">Vertical 9:16 (recommended)</option>
             <option value="1:1">Square 1:1</option>
             <option value="16:9">Horizontal 16:9</option>
           </select>
-        </Field>
+        </Field>}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      {isDialogue && (
+        <Field label="The lines, in order" required>
+          <DialogueFields value={dialogue} onChange={setDialogue} characters={characters} maxDurationS={maxDurationS} />
+        </Field>
+      )}
+
+      <div className={`grid grid-cols-1 gap-4 sm:grid-cols-3 ${isDialogue ? "hidden" : ""}`}>
         <Field label="Opening hook" required>
           <select name="hook_type" required defaultValue="Bold claim" className="w-full rounded-md border bg-white px-2 py-1.5 text-sm">
             <option value="Bold claim">Bold claim (a counterintuitive statement)</option>
@@ -174,7 +213,7 @@ export function VideoWizard({
         </Field>
       </div>
 
-      {voiceAvailable && (
+      {voiceAvailable && !isDialogue && (
         <label className="flex items-center gap-2 text-sm text-slate-700">
           <input type="checkbox" name="voice" />
           Use my cloned voice when I speak on screen (a narrator always uses a neutral voice)
@@ -196,7 +235,7 @@ export function VideoWizard({
           className="w-full rounded-md border bg-white px-2 py-1.5 text-sm" />
       </Field>
 
-      <Field label="Your photos or clips (optional but recommended, max 20MB per image / 100MB per video)">
+      {!isDialogue && <Field label="Your photos or clips (optional but recommended, max 20MB per image / 100MB per video)">
         <input
           type="file"
           multiple
@@ -247,7 +286,7 @@ export function VideoWizard({
             ))}
           </ul>
         )}
-      </Field>
+      </Field>}
 
       <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600">
         Next step: we draft a free storyboard (script and shot list) for you to approve.
