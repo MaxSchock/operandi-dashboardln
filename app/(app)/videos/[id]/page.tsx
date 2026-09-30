@@ -134,6 +134,15 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
         </div>
       )}
 
+      {r.error && (r.status === "draft" || r.status === "storyboard_ready") && (
+        // The engine gave up after three tries (video-engine storyboard._failed).
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+          {r.status === "draft"
+            ? "We could not write the storyboard for this request. Start it again below; if it happens again, write to us."
+            : "We could not apply your last changes to the storyboard. Send them again; if it happens again, write to us."}
+        </div>
+      )}
+
       {degraded && (
         <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
           This video was delivered without its {missing.join(" and ")} because of a fault on our side, not
