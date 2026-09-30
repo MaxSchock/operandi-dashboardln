@@ -47,6 +47,7 @@ const ENGAGEMENT_LABEL: Record<string, string> = {
   reaction: "Reacted",
   comment: "Commented",
   repost: "Reposted",
+  after_call: "Phoned",
 };
 
 /** Why a send did not go out. These come from the strategist, which reads the real
@@ -200,16 +201,27 @@ function ProposalCard({ p, canOperate, editable }: { p: ProposalRow; canOperate:
           looked like one group under a single theme label. */}
       <div className="mt-3 rounded-md border-l-2 border-slate-200 bg-slate-50/60 px-3 py-2">
         <div className="flex flex-wrap items-baseline gap-x-2 text-[11px] uppercase tracking-wide text-slate-400">
-          <span>{engaged} on your post</span>
-          {postDate && <span className="normal-case tracking-normal text-slate-500">{postDate}</span>}
-          <a
-            href={postUrl(p.post_social_id)}
-            target="_blank"
-            rel="noreferrer"
-            className="ml-auto normal-case tracking-normal text-electric hover:underline"
-          >
-            View post ↗
-          </a>
+          {p.engagement_type === "after_call" ? (
+            <>
+              <span>Call notes · accepted the invitation after the call</span>
+              <a href={`/leads/${p.lead_id}`} className="ml-auto normal-case tracking-normal text-electric hover:underline">
+                Lead history
+              </a>
+            </>
+          ) : (
+            <>
+              <span>{engaged} on your post</span>
+              {postDate && <span className="normal-case tracking-normal text-slate-500">{postDate}</span>}
+              <a
+                href={postUrl(p.post_social_id)}
+                target="_blank"
+                rel="noreferrer"
+                className="ml-auto normal-case tracking-normal text-electric hover:underline"
+              >
+                View post ↗
+              </a>
+            </>
+          )}
         </div>
         {p.post_excerpt && (
           <p className="mt-1 line-clamp-3 text-xs leading-5 text-slate-600">{p.post_excerpt}</p>
