@@ -35,6 +35,16 @@ export default async function CallingSettings({ searchParams }: { searchParams: 
         {!c && <p className="text-sm text-amber-700">No settings yet for this client: saving creates them. Until then the defaults apply.</p>}
       </header>
       {saved && <div className="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">Saved.</div>}
+      {c?.mailbox_paused_at && (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900">
+          <span>Follow-up emails are paused since {new Date(c.mailbox_paused_at).toLocaleString("en-GB")}: {c.mailbox_paused_reason ?? "too many bounces"}. Clean the list before resuming.</span>
+          {tier.isAdmin && (
+            <form action={`/api/calling/config?client=${encodeURIComponent(client)}&action=resume`} method="post" className="ml-auto">
+              <button className="rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white hover:opacity-90">Resume sending</button>
+            </form>
+          )}
+        </div>
+      )}
       {err && <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900">Not saved: {err}</div>}
 
       <form action={`/api/calling/config?client=${encodeURIComponent(client)}`} method="post" className="space-y-6">

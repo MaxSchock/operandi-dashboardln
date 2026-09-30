@@ -26,6 +26,7 @@ type LeadInfo = {
   country: string | null;
   timezone: string | null;
   language: string | null;
+  email_bounced_at: string | null;
   enrichment: Enrichment;
 };
 
@@ -65,6 +66,7 @@ type View = {
   stage: CallingStage;
   reply: { at: string; channel: "email" | "linkedin" } | null;
   replyOpen: boolean;
+  bounced: boolean;
   callbackDue: boolean;
   meetingToday: boolean;
   calls: CallEvent[];
@@ -99,6 +101,8 @@ const NOTICE_COPY: Record<string, string> = {
   "email:already_messaged": "Not sent: you already emailed this person by hand. Continue that thread yourself.",
   "email:provider_unreachable": "Not sent: the mailbox could not be reached. Nothing went out, try again later.",
   "email:daily_quota_reached": "Not sent: today's email cap is reached. It will go out tomorrow.",
+  "email:mailbox_paused": "Not sent: follow-up emails are paused because too many bounced. See Settings.",
+  "email:bounced": "Not sent: this address bounced. Get the right one on the next call.",
 };
 function noticeCopy(raw: string | undefined): string | null {
   if (!raw) return null;
@@ -134,7 +138,7 @@ export default async function CallingPage({ searchParams }: { searchParams: Prom
   const size = (SIZE_FILTERS as readonly string[]).includes(params.size ?? "")
     ? params.size!
     : ((SIZE_FILTERS as readonly string[]).includes(clientCfg?.default_size ?? "") ? clientCfg!.default_size : "all");
-  const select = "lead_id, client_slug, current_stage, last_inbound_at, updated_at, channel_state, leads!inner(id, full_name, headline, company, email, phone, role, source_batch, country, timezone, language, enrichment)";
+  const select = "lead_id, client_slug, current_stage, last_inbound_at, updated_at, channel_state, leads!inner(id, full_name, headline, company, email, phone, role, source_batch, country, timezone, language, email_bounced_at, enrichment)";
   let qCalling = sb.from("lead_state").select(select).not("channel_state->calling", "is", null)
     .order("updated_at", { ascending: false }).limit(1000);
   // Leads that were sourced for LinkedIn but fit the calling profile (phone + 5-20 people)
@@ -178,6 +182,7 @@ export default async function CallingPage({ searchParams }: { searchParams: Prom
     return [{
       r, l, cs, stage, reply,
       replyOpen: stage !== "closed" && replyUnhandled(cs, reply),
+      bounced: stage !== "closed" && !!l.email_bounced_at,
       callbackDue: stage !== "closed" && !!cs?.callback_at && ts(cs.callback_at) < ts(endOfToday),
       meetingToday: stage === "meeting" && !!cs?.meeting_at && ts(cs.meeting_at) >= ts(startOfToday) && ts(cs.meeting_at) < ts(endOfToday),
       calls: callsBy.get(r.lead_id) ?? [],
@@ -196,7 +201,7 @@ export default async function CallingPage({ searchParams }: { searchParams: Prom
     return true;
   };
   const inTab = (v: View, t: CallingTab) =>
-    t === "today" ? (v.replyOpen || v.callbackDue || v.meetingToday) : v.stage === t;
+    t === "today" ? (v.replyOpen || v.bounced || v.callbackDue || v.meetingToday) : v.stage === t;
 
   const filtered = views.filter(matches);
   const drafts = ((draftRows ?? []) as unknown as DraftRow[]);
@@ -333,6 +338,7 @@ function sorter(tab: CallingTab) {
     if (tab === "today") {
       // Replies first (someone is waiting on you), then due call-backs, oldest first.
       if (a.replyOpen !== b.replyOpen) return a.replyOpen ? -1 : 1;
+      if (a.bounced !== b.bounced) return a.bounced ? -1 : 1;
       return ts(a.cs?.callback_at ?? a.cs?.meeting_at) - ts(b.cs?.callback_at ?? b.cs?.meeting_at);
     }
     if (tab === "meeting") return (ts(a.cs?.meeting_at) || Infinity) - (ts(b.cs?.meeting_at) || Infinity);
@@ -423,6 +429,12 @@ function LeadCard({ v, tab, tz, canOperate, cfg }: { v: View; tab: CallingTab; t
               <button className="rounded-md bg-emerald-600 px-2 py-1 font-medium text-white hover:opacity-90">Handled</button>
             </form>
           )}
+        </div>
+      )}
+
+      {v.bounced && (
+        <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          Their email bounced {fmtWhen(l.email_bounced_at!, tz)}, so the emails stopped. Ask for the right address on the next call; saving a new one clears this.
         </div>
       )}
 

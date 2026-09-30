@@ -270,6 +270,8 @@ export type CallingConfig = {
   rules: string[];
   compliance_note: string | null;
   objections: { objection: string; answer: string }[];
+  mailbox_paused_at?: string | null;
+  mailbox_paused_reason?: string | null;
 };
 
 export const DEFAULT_CALL_HINT = "What they said: what is their situation, what is the bottleneck, who decides?";

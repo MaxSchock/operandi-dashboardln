@@ -21,6 +21,16 @@ export async function POST(req: NextRequest) {
 
   const back = new URL(`/calling/settings?client=${encodeURIComponent(client)}`, req.url);
   const fail = (msg: string) => { back.searchParams.set("error", msg); return NextResponse.redirect(back, 303); };
+  if (req.nextUrl.searchParams.get("action") === "resume") {
+    // Admin clears a mailbox paused by the bounce scan.
+    if (!who.isAdmin) return fail("only Operandi can resume a paused mailbox");
+    const { error } = await serviceRoleClient().schema("outreach").from("calling_config")
+      .update({ mailbox_paused_at: null, mailbox_paused_reason: null, updated_at: new Date().toISOString(), updated_by: who.actor })
+      .eq("client_slug", client);
+    if (error) return fail(error.message);
+    back.searchParams.set("saved", "1");
+    return NextResponse.redirect(back, 303);
+  }
   const fd = await req.formData().catch(() => null);
   if (!fd) return fail("could not read the form");
 

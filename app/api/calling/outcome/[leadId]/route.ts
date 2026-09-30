@@ -77,7 +77,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ leadId: st
   if (emailRaw) {
     const { data: leadRow } = await admin.from("leads").select("email").eq("id", lid).maybeSingle();
     if ((leadRow?.email ?? "").toLowerCase() !== emailRaw) {
-      const { error: emErr } = await admin.from("leads").update({ email: emailRaw }).eq("id", lid);
+      const { error: emErr } = await admin.from("leads").update({ email: emailRaw, email_bounced_at: null }).eq("id", lid);
       if (emErr) return NextResponse.json({ error: `email not saved: ${emErr.message}` }, { status: 500 });
     }
   }
