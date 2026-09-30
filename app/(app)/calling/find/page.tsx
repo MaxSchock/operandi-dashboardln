@@ -143,7 +143,7 @@ export default async function FindInApollo({ searchParams }: { searchParams: Pro
               </table>
               <div className="mt-4 flex flex-wrap items-center gap-3">
                 <button className="rounded-md bg-electric px-4 py-2 text-sm font-medium text-white hover:opacity-90">Add ticked to To call</button>
-                <span className="text-xs text-slate-500">One credit per person; people without a phone after revealing are not added.</span>
+                <span className="text-xs text-slate-500">One credit per person. Apollo sometimes reveals no phone even when it says it has one.</span>
                 <span className="ml-auto flex gap-3 text-xs">
                   {page > 1 && <a className="text-electric hover:underline" href={`/calling/find?${qs(filters, { client, run: "1", page: String(page - 1) })}`}>← previous</a>}
                   {result.people.length === 25 && <a className="text-electric hover:underline" href={`/calling/find?${qs(filters, { client, run: "1", page: String(page + 1) })}`}>next →</a>}

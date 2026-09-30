@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
   try {
     const j = JSON.parse(res.text);
     msg = j.ok === true && typeof j.added === "number"
-      ? `Added ${j.added} to To call. Credits used ${j.credits}. Already in ${j.duplicates ?? 0}, no phone after revealing ${j.no_phone ?? 0}${j.failed ? `, failed ${j.failed}` : ""}.`
+      ? `Added ${j.added} to To call, credits used ${j.credits}.${j.no_phone ? ` ${j.no_phone} came without a phone: look the number up on their website.` : ""}${j.duplicates ? ` ${j.duplicates} were already in.` : ""}${j.failed ? ` ${j.failed} failed.` : ""}`
       : `Nothing added: ${j.reason ?? j.detail ?? "unexpected answer"}`;
   } catch {
     msg = `Nothing confirmed (strategist ${res.status}). Check the To call tab before trying again.`;
