@@ -71,7 +71,9 @@ export async function POST(req: NextRequest) {
     const end = num("send_end_hour", 1, 24, 17);
     if (end <= start) return fail("the sending window ends before it starts");
     if (days.length === 0) return fail("pick at least one sending day");
+    const cap = String(fd.get("apollo_monthly_credits") ?? "").trim();
     Object.assign(row, {
+      apollo_monthly_credits: cap === "" ? null : num("apollo_monthly_credits", 0, 20000, 300),
       default_country: text(fd.get("default_country"), 64),
       default_timezone: tz,
       default_language: lang,

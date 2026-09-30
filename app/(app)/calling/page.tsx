@@ -302,11 +302,10 @@ export default async function CallingPage({ searchParams }: { searchParams: Prom
                 </form>
               </details>
               {tier.isAdmin && (
-                <form action={`/api/calling/topup?slug=${encodeURIComponent(uploadClient)}&target=100`} method="post">
-                  <button className="rounded-md border border-electric px-3 py-1 text-xs font-medium text-electric hover:bg-electric/5">
-                    Top up 100 UK trades ({uploadClient})
-                  </button>
-                </form>
+                <a href={`/calling/find?client=${encodeURIComponent(uploadClient)}`}
+                  className="rounded-md border border-electric px-3 py-1 text-xs font-medium text-electric hover:bg-electric/5">
+                  Find people in Apollo ({uploadClient})
+                </a>
               )}
             </div>
           )}

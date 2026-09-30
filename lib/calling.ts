@@ -271,6 +271,7 @@ export type CallingConfig = {
   compliance_note: string | null;
   objections: { objection: string; answer: string }[];
   mailbox_paused_at?: string | null;
+  apollo_monthly_credits?: number | null;
   mailbox_paused_reason?: string | null;
 };
 

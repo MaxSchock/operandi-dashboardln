@@ -68,10 +68,13 @@ export default async function CallingSettings({ searchParams }: { searchParams: 
           <>
             <Card>
               <CardHeader title="Market" hint="Defaults for leads Apollo does not place; each lead can override on its card" />
-              <CardBody className="grid gap-4 text-sm md:grid-cols-4">
+              <CardBody className="grid gap-4 text-sm md:grid-cols-5">
                 <label>Country<input name="default_country" defaultValue={c?.default_country ?? ""} placeholder="United Kingdom" className={input} /></label>
                 <label>Time zone<input name="default_timezone" defaultValue={c?.default_timezone ?? ""} placeholder="Europe/London" className={input} /></label>
                 <label>Email language<input name="default_language" defaultValue={c?.default_language ?? ""} placeholder="en-GB, es, de, fr, nl" className={input} /></label>
+                <label>Apollo credits per month
+                  <input type="number" name="apollo_monthly_credits" min={0} max={20000} defaultValue={c?.apollo_monthly_credits ?? ""} placeholder="300" className={input} />
+                </label>
                 <label>Default size filter
                   <select name="default_size" defaultValue={c?.default_size ?? "all"} className={input}>
                     {["all", "1-4", "5-20", "21-50", "51+", "unknown"].map(s => <option key={s} value={s}>{s}</option>)}
