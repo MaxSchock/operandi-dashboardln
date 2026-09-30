@@ -7,8 +7,8 @@ import { LockedPanel } from "@/components/locked-panel";
 import { CallLogForm, TimeZoneCookie } from "@/components/call-log-form";
 import {
   LINKEDIN_LABEL, OUTCOME_LABEL, OUTCOME_TONE, STAGE_LABEL, TABS, TAB_LABEL,
-  endOfTodayIso, fmtWhen, latestReply, ts, orgPhone, orgSize, replyUnhandled, sizeBucket, stageOf, websiteHref,
-  type CallingStage, type CallingState, type CallingTab, type Enrichment,
+  DEFAULT_CALL_HINT, endOfTodayIso, fmtWhen, latestReply, leadLocale, localTime, ts, orgPhone, orgSize, replyUnhandled, sizeBucket, stageOf, websiteHref,
+  type CallingConfig, type CallingStage, type CallingState, type CallingTab, type Enrichment,
 } from "@/lib/calling";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +23,9 @@ type LeadInfo = {
   phone: string | null;
   role: string | null;
   source_batch: string | null;
+  country: string | null;
+  timezone: string | null;
+  language: string | null;
   enrichment: Enrichment;
 };
 
@@ -114,7 +117,6 @@ export default async function CallingPage({ searchParams }: { searchParams: Prom
   }
   const params = await searchParams;
   const tab: CallingTab = (TABS as readonly string[]).includes(params.tab ?? "") ? (params.tab as CallingTab) : "today";
-  const size = (SIZE_FILTERS as readonly string[]).includes(params.size ?? "") ? params.size! : "all";
   const q = (params.q ?? "").trim().toLowerCase();
   const scope = await getClientScope();
   const client = params.client ?? scope ?? (tier.isAdmin ? "all" : (tier.clientSlug ?? "all"));
@@ -124,7 +126,15 @@ export default async function CallingPage({ searchParams }: { searchParams: Prom
   const startOfToday = new Date(new Date(endOfToday).getTime() - 86_400_000).toISOString();
 
   const sb = await createClient();
-  const select = "lead_id, client_slug, current_stage, last_inbound_at, updated_at, channel_state, leads!inner(id, full_name, headline, company, email, phone, role, source_batch, enrichment)";
+  let qCfg = sb.from("calling_config").select("*");
+  if (client !== "all") qCfg = qCfg.eq("client_slug", client);
+  const { data: cfgRows } = await qCfg;
+  const cfgBy = new Map(((cfgRows ?? []) as CallingConfig[]).map(c => [c.client_slug, c]));
+  const clientCfg = client !== "all" ? (cfgBy.get(client) ?? null) : null;
+  const size = (SIZE_FILTERS as readonly string[]).includes(params.size ?? "")
+    ? params.size!
+    : ((SIZE_FILTERS as readonly string[]).includes(clientCfg?.default_size ?? "") ? clientCfg!.default_size : "all");
+  const select = "lead_id, client_slug, current_stage, last_inbound_at, updated_at, channel_state, leads!inner(id, full_name, headline, company, email, phone, role, source_batch, country, timezone, language, enrichment)";
   let qCalling = sb.from("lead_state").select(select).not("channel_state->calling", "is", null)
     .order("updated_at", { ascending: false }).limit(1000);
   // Leads that were sourced for LinkedIn but fit the calling profile (phone + 5-20 people)
@@ -201,7 +211,7 @@ export default async function CallingPage({ searchParams }: { searchParams: Prom
     const p = new URLSearchParams();
     p.set("tab", t);
     if (params.q) p.set("q", params.q);
-    if (size !== "all") p.set("size", size);
+    if (params.size) p.set("size", size);
     if (params.client) p.set("client", params.client);
     return `?${p.toString()}`;
   };
@@ -218,11 +228,17 @@ export default async function CallingPage({ searchParams }: { searchParams: Prom
             Phone first, nothing automated before the call. Today shows what needs you now:
             call-backs that are due, replies nobody has handled, emails waiting for approval and today&apos;s meetings.
           </p>
+          {clientCfg?.compliance_note && (
+            <p className="mt-2 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600"><span className="font-medium">Before you call: </span>{clientCfg.compliance_note}</p>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <Badge tone="electric">{calledToday} called today</Badge>
           {replies > 0 && <Badge tone="green">{replies} repl{replies === 1 ? "y" : "ies"} waiting</Badge>}
           {dueCalls > 0 && <Badge tone="red">{dueCalls} call-back{dueCalls === 1 ? "" : "s"} due</Badge>}
+          {tier.canOperate && client !== "all" && (
+            <a href={`/calling/settings?client=${encodeURIComponent(client)}`} className="text-electric hover:underline">Settings</a>
+          )}
         </div>
       </header>
 
@@ -296,7 +312,7 @@ export default async function CallingPage({ searchParams }: { searchParams: Prom
         {rows.length === 0 ? (
           <Card><EmptyState title={tab === "today" ? "Nothing due right now" : `Nobody in ${TAB_LABEL[tab]}`}
             hint={tab === "today" ? "Call-backs, replies and meetings show up here on their day." : "Change the size or search, or look in another tab."} /></Card>
-        ) : rows.map(v => <LeadCard key={v.r.lead_id} v={v} tab={tab} tz={tz} canOperate={tier.canOperate} />)}
+        ) : rows.map(v => <LeadCard key={v.r.lead_id} v={v} tab={tab} tz={tz} canOperate={tier.canOperate} cfg={cfgBy.get(v.r.client_slug) ?? null} />)}
       </div>
     </div>
   );
@@ -357,7 +373,7 @@ function EmailLine({ v, tz }: { v: View; tz: string }) {
   );
 }
 
-function LeadCard({ v, tab, tz, canOperate }: { v: View; tab: CallingTab; tz: string; canOperate: boolean }) {
+function LeadCard({ v, tab, tz, canOperate, cfg }: { v: View; tab: CallingTab; tz: string; canOperate: boolean; cfg: CallingConfig | null }) {
   const { r, l, cs, stage } = v;
   const st = cs?.status ?? "queued";
   const org = l.enrichment?.organization ?? null;
@@ -367,6 +383,7 @@ function LeadCard({ v, tab, tz, canOperate }: { v: View; tab: CallingTab; tz: st
   const profile = l.enrichment?.profile_url || l.enrichment?.linkedin_url || null;
   const liStage = r.current_stage !== "paused" ? (LINKEDIN_LABEL[r.current_stage] ?? r.current_stage.replace(/_/g, " ")) : null;
   const callback = cs?.callback_at ?? null;
+  const loc = leadLocale(l, cfg);
 
   return (
     <div id={`lead-${r.lead_id}`} className={`rounded-lg border bg-white p-4 ${v.replyOpen ? "border-emerald-400" : v.callbackDue ? "border-red-300" : ""}`}>
@@ -381,7 +398,9 @@ function LeadCard({ v, tab, tz, canOperate }: { v: View; tab: CallingTab; tz: st
             {org?.industry && <span> · {org.industry}</span>}
             {size !== null && <span> · {size} people</span>}
             {(org?.city || l.enrichment?.city) && <span> · {org?.city || l.enrichment?.city}</span>}
+            {loc.country && <span> · {loc.country}</span>}
           </p>
+          <p className="text-[11px] text-slate-400">their time {localTime(loc.tz)} · emails in {loc.language}</p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
           {tab === "today" && <Badge tone="slate">{STAGE_LABEL[stage]}</Badge>}
@@ -432,7 +451,19 @@ function LeadCard({ v, tab, tz, canOperate }: { v: View; tab: CallingTab; tz: st
 
       {canOperate && (
         <>
-          <CallLogForm leadId={r.lead_id} email={l.email} emailConsent={!!cs?.email_consent} />
+          {(cfg?.objections ?? []).length > 0 && (
+            <details className="mt-2 text-xs">
+              <summary className="cursor-pointer font-medium text-slate-500">Objections</summary>
+              <dl className="mt-1 space-y-1">
+                {cfg!.objections.map((o, i) => (
+                  <div key={i}><dt className="font-medium text-slate-700">{o.objection}</dt><dd className="text-slate-600">{o.answer}</dd></div>
+                ))}
+              </dl>
+            </details>
+          )}
+          <CallLogForm leadId={r.lead_id} email={l.email} emailConsent={!!cs?.email_consent}
+            branches={cfg?.branches?.length ? cfg.branches.map(b => ({ key: b.key, label: b.label })) : undefined}
+            hint={cfg?.call_hint || DEFAULT_CALL_HINT} />
           <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
             <span>move to:</span>
             {(["to_call", "follow_up", "meeting", "closed"] as const).filter(s => s !== stage).map(s => (
@@ -441,6 +472,15 @@ function LeadCard({ v, tab, tz, canOperate }: { v: View; tab: CallingTab; tz: st
                 <button className="rounded border px-2 py-0.5 hover:bg-slate-50">{STAGE_LABEL[s]}</button>
               </form>
             ))}
+            <details className="ml-auto">
+              <summary className="cursor-pointer">country, time zone, language</summary>
+              <form action={`/api/calling/lead/${r.lead_id}?action=locale`} method="post" className="mt-1 flex flex-wrap items-center gap-1">
+                <input name="country" defaultValue={l.country ?? ""} placeholder={loc.country || "country"} className="w-28 rounded border px-1 py-0.5" />
+                <input name="timezone" defaultValue={l.timezone ?? ""} placeholder={loc.tz} className="w-32 rounded border px-1 py-0.5" />
+                <input name="language" defaultValue={l.language ?? ""} placeholder={loc.language} className="w-16 rounded border px-1 py-0.5" />
+                <button className="rounded border px-2 py-0.5 hover:bg-slate-50">Save</button>
+              </form>
+            </details>
           </div>
         </>
       )}

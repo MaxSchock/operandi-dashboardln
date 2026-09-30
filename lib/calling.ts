@@ -245,3 +245,64 @@ function normaliseHeader(h: string): string {
   };
   return map[k] ?? k;
 }
+
+/** outreach.calling_config: what used to be hard-coded for Zayd, per client. */
+export type CallingConfig = {
+  client_slug: string;
+  branches: { key: string; label: string; angles?: string[] }[];
+  call_hint: string | null;
+  default_size: string;
+  default_country: string | null;
+  default_language: string | null;
+  default_timezone: string | null;
+  send_days: number[];
+  send_start_hour: number;
+  send_end_hour: number;
+  total_steps: number | null;
+  gap_days: number | null;
+  require_consent: boolean;
+  sender_name: string | null;
+  sender_company: string | null;
+  signature: string | null;
+  booking_link: string | null;
+  opt_out_line: string | null;
+  proof_points: string[];
+  rules: string[];
+  compliance_note: string | null;
+  objections: { objection: string; answer: string }[];
+};
+
+export const DEFAULT_CALL_HINT = "What they said: what is their situation, what is the bottleneck, who decides?";
+
+/** Same fallback order as the strategist's lead_locale (nurture.py). Keep them in step. */
+const COUNTRY_LANGUAGE: Record<string, string> = {
+  "united kingdom": "en-GB", ireland: "en-GB", "united states": "en-US", canada: "en-US", australia: "en-GB",
+  spain: "es", mexico: "es", argentina: "es", colombia: "es", chile: "es",
+  germany: "de", austria: "de", switzerland: "de", france: "fr", belgium: "fr", luxembourg: "fr",
+  netherlands: "nl", italy: "it", portugal: "pt", brazil: "pt",
+};
+
+const COUNTRY_TZ: Record<string, string> = {
+  "united kingdom": "Europe/London", ireland: "Europe/Dublin", spain: "Europe/Madrid", germany: "Europe/Berlin",
+  austria: "Europe/Vienna", switzerland: "Europe/Zurich", france: "Europe/Paris", belgium: "Europe/Brussels",
+  luxembourg: "Europe/Luxembourg", netherlands: "Europe/Amsterdam", italy: "Europe/Rome", portugal: "Europe/Lisbon",
+};
+
+export function leadLocale(
+  lead: { country?: string | null; timezone?: string | null; language?: string | null; enrichment?: unknown },
+  cfg: Pick<CallingConfig, "default_country" | "default_timezone" | "default_language"> | null,
+): { country: string; tz: string; language: string } {
+  const e = (lead.enrichment ?? {}) as { country?: string | null; time_zone?: string | null; organization?: { country?: string | null } | null };
+  const country = lead.country || e.country || e.organization?.country || cfg?.default_country || "";
+  const tz = lead.timezone || e.time_zone || COUNTRY_TZ[country.trim().toLowerCase()] || cfg?.default_timezone || "Europe/London";
+  const language = lead.language || COUNTRY_LANGUAGE[country.trim().toLowerCase()] || cfg?.default_language || "en-GB";
+  return { country, tz, language };
+}
+
+export function localTime(tz: string, now = new Date()): string {
+  try {
+    return now.toLocaleTimeString("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", weekday: "short" });
+  } catch {
+    return "";
+  }
+}

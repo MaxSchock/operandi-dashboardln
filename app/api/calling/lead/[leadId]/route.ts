@@ -8,6 +8,7 @@ import { backTo, changedNothing, loadLeadForActor, requireFeature, resolveActor,
  *   reply_handled            the operator has dealt with the latest reply (it leaves "Today")
  *   stage   stage=to_call|follow_up|meeting|closed   move the lead by hand
  *   meeting meeting_at=ISO   set or change the meeting date
+ *   locale  country= timezone= language=   per-lead overrides for emails and "their time"
  *
  * Moving to closed also stops an open email sequence, as a red call does.
  */
@@ -48,6 +49,24 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ leadId: st
     if (d && Number.isNaN(d.getTime())) return NextResponse.json({ error: "bad date" }, { status: 400 });
     calling = { ...prev, stage: "meeting", meeting_at: d ? d.toISOString() : null };
     event = { action, meeting_at: calling.meeting_at };
+  } else if (action === "locale") {
+    // Per-lead overrides; empty clears back to Apollo's data and the client's defaults.
+    const country = String(fd.get("country") ?? "").trim().slice(0, 64) || null;
+    const timezone = String(fd.get("timezone") ?? "").trim() || null;
+    const language = String(fd.get("language") ?? "").trim() || null;
+    if (timezone) {
+      try { new Intl.DateTimeFormat("en-GB", { timeZone: timezone }); }
+      catch { return NextResponse.json({ error: "unknown time zone, use e.g. Europe/Madrid" }, { status: 400 }); }
+    }
+    if (language && !/^[a-z]{2}(-[A-Z]{2})?$/.test(language)) {
+      return NextResponse.json({ error: "language like es, de, fr, nl or en-GB" }, { status: 400 });
+    }
+    const admin = serviceRoleClient().schema("outreach");
+    const { error } = await admin.from("leads").update({ country, timezone, language }).eq("id", lid);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    const back = backTo(req);
+    back.hash = `lead-${lid}`;
+    return NextResponse.redirect(back, 303);
   } else {
     return NextResponse.json({ error: "unknown action" }, { status: 400 });
   }
