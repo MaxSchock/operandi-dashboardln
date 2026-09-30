@@ -35,17 +35,136 @@ export const NURTURE_BRANCHES = [
 
 export type CallingState = {
   status?: string;
+  /** Where the lead sits in the follow-up, independent of the last call's outcome:
+   *  a lead in follow-up that does not pick up on the next call stays in follow-up. */
+  stage?: CallingStage;
   batch?: string;
   added_at?: string;
   calls?: number;
   last_call_at?: string;
   last_notes?: string | null;
   callback_at?: string | null;
+  meeting_at?: string | null;
+  email_consent?: boolean;
+  email_consent_at?: string | null;
+  reply_at?: string | null;
+  reply_channel?: "email" | "linkedin" | null;
+  reply_handled_at?: string | null;
+  closed_reason?: string | null;
   linkedin_connect?: boolean;
   segment?: string | null;
   notes?: string | null;
   nurture?: { sequence_id?: number; status?: string; step?: number; last_sent_at?: string } | null;
 };
+
+export const CALLING_STAGES = ["to_call", "follow_up", "meeting", "closed"] as const;
+export type CallingStage = (typeof CALLING_STAGES)[number];
+
+export const STAGE_LABEL: Record<CallingStage, string> = {
+  to_call: "To call",
+  follow_up: "Following up",
+  meeting: "Meeting",
+  closed: "Closed",
+};
+
+/** Stage for rows written before `stage` existed: derived from the last outcome once. */
+export function stageOf(cs: CallingState | undefined | null, currentStage?: string | null): CallingStage {
+  if (currentStage === "opted_out") return "closed";
+  if (cs?.stage && (CALLING_STAGES as readonly string[]).includes(cs.stage)) return cs.stage;
+  switch (cs?.status) {
+    case "red": return "closed";
+    case "green": return "meeting";
+    case "orange":
+    case "replied": return "follow_up";
+    default: return "to_call";
+  }
+}
+
+/** Stage after logging a call. No answer never moves a lead backwards. */
+export function stageAfterCall(prev: CallingStage, outcome: CallOutcome): CallingStage {
+  if (outcome === "red") return "closed";
+  if (outcome === "green") return "meeting";
+  if (outcome === "orange") return prev === "meeting" ? "meeting" : "follow_up";
+  return prev === "closed" ? "to_call" : prev;
+}
+
+/** The latest reply we know of on any channel, or null. */
+export function latestReply(
+  cs: CallingState | undefined | null,
+  li: { current_stage?: string | null; last_inbound_at?: string | null },
+): { at: string; channel: "email" | "linkedin" } | null {
+  const out: { at: string; channel: "email" | "linkedin" }[] = [];
+  if (cs?.reply_at) out.push({ at: cs.reply_at, channel: cs.reply_channel ?? "email" });
+  else if (cs?.nurture?.status === "replied" || cs?.status === "replied") {
+    out.push({ at: cs?.nurture?.last_sent_at ?? cs?.last_call_at ?? cs?.added_at ?? "", channel: "email" });
+  }
+  if ((li.current_stage === "replied" || li.current_stage === "qualified") && li.last_inbound_at) {
+    out.push({ at: li.last_inbound_at, channel: "linkedin" });
+  }
+  out.sort((a, b) => ts(b.at) - ts(a.at));
+  return out[0] ?? null;
+}
+
+export function replyUnhandled(cs: CallingState | undefined | null, reply: { at: string } | null): boolean {
+  if (!reply) return false;
+  const handled = cs?.reply_handled_at ?? "";
+  return !handled || ts(handled) < ts(reply.at);
+}
+
+/** Epoch ms of a stored timestamp. Rows mix "Z" and "+00:00" and Postgres' own text
+ *  form, so comparing the strings is not safe. Unparseable counts as never (0). */
+export function ts(s: string | null | undefined): number {
+  if (!s) return 0;
+  const n = Date.parse(s.includes("T") ? s : s.replace(" ", "T"));
+  return Number.isNaN(n) ? 0 : n;
+}
+
+/** LinkedIn stage in words, for a lead the operator chose to connect with. */
+export const LINKEDIN_LABEL: Record<string, string> = {
+  pre_contact: "invite queued",
+  invited: "invite sent",
+  engaged_post: "engaged with a post",
+  accepted: "connected",
+  messaged: "message sent",
+  replied: "replied",
+  qualified: "qualified",
+  opted_out: "opted out",
+  expired: "invite expired",
+};
+
+export const TABS = ["today", "to_call", "follow_up", "meeting", "closed"] as const;
+export type CallingTab = (typeof TABS)[number];
+export const TAB_LABEL: Record<CallingTab, string> = {
+  today: "Today",
+  to_call: "To call",
+  follow_up: "Following up",
+  meeting: "Meetings",
+  closed: "Closed",
+};
+
+/** Start of tomorrow in `tz`, as an ISO instant. Anything due before it is "today". */
+export function endOfTodayIso(tz: string, now = new Date()): string {
+  let zone = tz;
+  try { new Intl.DateTimeFormat("en-GB", { timeZone: zone }); } catch { zone = "Europe/London"; }
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-GB", {
+    timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).formatToParts(now).map(p => [p.type, p.value]));
+  const minutesIntoDay = Number(parts.hour) * 60 + Number(parts.minute);
+  return new Date(now.getTime() + (24 * 60 - minutesIntoDay) * 60_000 - now.getSeconds() * 1000).toISOString();
+}
+
+export function fmtWhen(iso: string | null | undefined, tz: string): string {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleString("en-GB", { timeZone: tz, weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  }
+}
+
+export function isEmail(s: string): boolean {
+  return /^[^\s@<>(),;:]+@[^\s@<>(),;:]+\.[a-z]{2,}$/i.test(s);
+}
 
 export type Enrichment = {
   organization?: {

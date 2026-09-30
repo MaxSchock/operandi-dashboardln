@@ -4,7 +4,7 @@ import { ArrowLeft, Mail, Phone, Building2, Briefcase, Activity as ActivityIcon 
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardBody, Badge, EmptyState } from "@/components/ui";
 import { getTier } from "@/lib/tier";
-import { orgPhone } from "@/lib/calling";
+import { OUTCOME_LABEL, orgPhone } from "@/lib/calling";
 
 export const dynamic = "force-dynamic";
 
@@ -80,9 +80,17 @@ export default async function LeadDetail({ params }: { params: Promise<{ id: str
                 {(events ?? []).map(e => (
                   <li key={e.id} className="flex gap-4 px-5 py-3 text-sm">
                     <div className="w-40 shrink-0 text-xs text-slate-500">{new Date(e.occurred_at).toLocaleString()}</div>
-                    <div>
-                      <div className="font-medium text-slate-800">{e.event_type.replace("_", " ")}</div>
-                      <div className="text-xs text-slate-500">{e.channel}</div>
+                    <div className="min-w-0">
+                      <div className="font-medium text-slate-800">
+                        {e.event_type === "call_outcome"
+                          ? `Call · ${OUTCOME_LABEL[e.payload?.outcome ?? ""] ?? e.payload?.outcome ?? ""}`
+                          : e.event_type.replace(/_/g, " ")}
+                      </div>
+                      <div className="text-xs text-slate-500">{e.channel}{e.payload?.by ? ` · ${e.payload.by}` : ""}</div>
+                      {e.payload?.notes && <div className="mt-1 whitespace-pre-wrap text-xs text-slate-600">{e.payload.notes}</div>}
+                      {e.event_type === "email_sent" && e.payload?.subject && (
+                        <div className="mt-1 text-xs text-slate-600">email {e.payload.step}: {e.payload.subject}</div>
+                      )}
                     </div>
                   </li>
                 ))}
