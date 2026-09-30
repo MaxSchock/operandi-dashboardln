@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serviceRoleClient } from "@/lib/supabase/server";
-import { resolveVideoActor, addEvent, estimateCostUsd } from "@/lib/videos";
+import { resolveVideoActor, addEvent, estimateCostUsd, MAX_REQUEST_CHARS, type VideoActor } from "@/lib/videos";
 import { parseLines, dialogueSeconds, dialogueCostUsd, type DialogueLine } from "@/lib/video-dialogue";
 
 const STYLES = new Set(["typography", "broll", "talking_head", "dialogue"]);
@@ -42,6 +42,11 @@ export async function POST(req: NextRequest) {
   const hookType = HOOKS.has(String(body.hook_type)) ? String(body.hook_type) : null;
   const topicPillar = PILLARS.has(String(body.topic_pillar)) ? String(body.topic_pillar) : null;
   const ctaStyle = CTA_STYLES.has(String(body.cta_style)) ? String(body.cta_style) : null;
+
+  // One-field form: the client says what should happen and the engine's agent
+  // picks style, length, message, CTA and lines (video-engine app/decide.py)
+  // before the storyboard. Cost and final length are written by the engine.
+  if (style === "auto") return createAuto(req, body, actor);
 
   if (!STYLES.has(style)) return NextResponse.json({ error: "invalid style" }, { status: 400 });
   // A dialogue video carries its message in the client's own lines: goal is
@@ -98,4 +103,42 @@ export async function POST(req: NextRequest) {
 
   if (ct.includes("application/json")) return NextResponse.json({ id: data.id });
   return NextResponse.redirect(new URL(`/videos/${data.id}`, req.url), 303);
+}
+
+
+
+async function createAuto(req: NextRequest, body: Record<string, unknown>, actor: VideoActor) {
+  const request = String(body.request ?? "").trim();
+  const language = String(body.language ?? "").trim();
+  const linkedPostId = String(body.linked_post_id ?? "").trim();
+  if (request.length < 10) return NextResponse.json({ error: "describe what should happen in the video" }, { status: 400 });
+  if (request.length > MAX_REQUEST_CHARS) {
+    return NextResponse.json({ error: `at most ${MAX_REQUEST_CHARS} characters` }, { status: 400 });
+  }
+  if (!LANGS.has(language)) return NextResponse.json({ error: "invalid language" }, { status: 400 });
+
+  const maxS = actor.features.video_max_duration_s;
+  const svc = serviceRoleClient();
+  const { data, error: dbError } = await svc.from("video_requests").insert({
+    client_slug: actor.clientSlug,
+    content_slug: actor.contentSlug,
+    status: "draft",
+    brief: {
+      style: "auto", style_by: "agent", request, language,
+      // Placeholder title until the agent writes one.
+      goal: request.length > 80 ? `${request.slice(0, 77)}...` : request,
+      linked_post_id: linkedPostId || null, aspect: "9:16", voice: false,
+      // What the agent may use, from the client's features (never a checkbox).
+      voice_consent: !!actor.features.voice_consent_at,
+      max_duration_s: maxS,
+    },
+    // Provisional: the engine writes the real length and cost once it has chosen.
+    duration_s: Math.min(15, maxS),
+    cost_estimated_usd: null,
+    created_by: actor.tier.userId,
+  }).select("id").single();
+  if (dbError) return NextResponse.json({ error: dbError.message }, { status: 500 });
+
+  await addEvent(data.id, "created", actor, { style: "auto" });
+  return NextResponse.json({ id: data.id });
 }

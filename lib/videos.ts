@@ -169,3 +169,15 @@ export function clientRedraws(rows: Keyframe[], shotN: number, role: string): nu
 export function wantsJson(req: Request): boolean {
   return (req.headers.get("content-type") ?? "").includes("application/json");
 }
+
+/** Longest text the one-field form takes (what should happen in the video). */
+export const MAX_REQUEST_CHARS = 2000;
+
+const STYLE_NAMES: Record<string, string> = {
+  auto: "choosing the style", dialogue: "dialogue", broll: "scenes", typography: "text only", talking_head: "talking head",
+};
+
+/** How the style reads in the panel ("auto" until the agent has chosen). */
+export function styleName(style: unknown): string {
+  return STYLE_NAMES[String(style ?? "")] ?? String(style ?? "?");
+}

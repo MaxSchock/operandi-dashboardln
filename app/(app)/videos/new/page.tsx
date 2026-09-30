@@ -6,10 +6,11 @@ import { Card, CardHeader, CardBody, EmptyState } from "@/components/ui";
 import { getTier } from "@/lib/tier";
 import { resolveVideoActor } from "@/lib/videos";
 import { VideoWizard } from "@/components/video-wizard";
+import { VideoRequestSimple } from "@/components/video-request-simple";
 
 export const dynamic = "force-dynamic";
 
-export default async function NewVideoPage() {
+export default async function NewVideoPage({ searchParams }: { searchParams: Promise<{ advanced?: string }> }) {
   const tier = await getTier();
   if (!tier.videoEnabled) redirect("/dashboard");
 
@@ -39,6 +40,9 @@ export default async function NewVideoPage() {
   }));
 
   const voiceAvailable = !!actor.features.voice_consent_at;
+  // Clients write one text and the agent picks the style (2026-09-30). The
+  // detailed form (style, lines, recordings per line) stays for admins.
+  const advanced = tier.isAdmin && (await searchParams).advanced === "1";
 
   // People who can appear in a dialogue: the client's approved character sheets.
   const { data: chars } = await serviceRoleClient().from("video_characters")
@@ -64,17 +68,31 @@ export default async function NewVideoPage() {
         </p>
       </header>
       <Card>
-        <CardHeader title="Brief" hint="the more specific, the better the storyboard" />
+        <CardHeader title={advanced ? "Detailed brief (admin)" : "Your video"} hint="the more specific, the better the storyboard" />
         <CardBody>
-          <VideoWizard
-            maxDurationS={actor.features.video_max_duration_s}
-            voiceAvailable={voiceAvailable}
-            linkedPosts={linkedPosts}
-            keyframeReview={actor.features.video_keyframe_review}
-            characters={characters}
-          />
+          {advanced ? (
+            <VideoWizard
+              maxDurationS={actor.features.video_max_duration_s}
+              voiceAvailable={voiceAvailable}
+              linkedPosts={linkedPosts}
+              keyframeReview={actor.features.video_keyframe_review}
+              characters={characters}
+            />
+          ) : (
+            <VideoRequestSimple
+              maxDurationS={actor.features.video_max_duration_s}
+              linkedPosts={linkedPosts}
+              characters={characters.map(c => c.name)}
+              keyframeReview={actor.features.video_keyframe_review}
+            />
+          )}
         </CardBody>
       </Card>
+      {tier.isAdmin && (
+        <Link href={advanced ? "/videos/new" : "/videos/new?advanced=1"} className="text-xs text-slate-500 hover:text-slate-700">
+          {advanced ? "Client form (one text, the agent picks the style)" : "Admin: detailed form (style, lines, recordings)"}
+        </Link>
+      )}
     </div>
   );
 }

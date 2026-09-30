@@ -5,6 +5,7 @@ import { createPublicClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardBody, Badge, EmptyState } from "@/components/ui";
 import { getTier } from "@/lib/tier";
 import { getClientScope } from "@/lib/scope";
+import { styleName } from "@/lib/videos";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -137,7 +138,7 @@ export default async function VideosPage() {
                           {r.brief?.goal || "(no goal)"}
                         </div>
                         <div className="text-xs text-slate-500">
-                          {r.duration_s}s · {r.brief?.style ?? "?"}
+                          {r.brief?.style === "auto" ? "" : `${r.duration_s}s · `}{styleName(r.brief?.style)}
                           {r.regen_of ? " · regeneration" : ""}
                           {r.deliverable_version > 1 ? ` · v${r.deliverable_version}` : ""}
                           {tier.isAdmin && !scope ? ` · ${r.client_slug}` : ""}

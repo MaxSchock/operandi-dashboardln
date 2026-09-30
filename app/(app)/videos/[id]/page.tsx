@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, Download } from "lucide-react";
 import { createPublicClient, serviceRoleClient } from "@/lib/supabase/server";
 import { presignGet } from "@/lib/minio";
-import { latestKeyframes, clientRedraws, needsKeyframes, MAX_KEYFRAME_REDRAWS, type Keyframe } from "@/lib/videos";
+import { latestKeyframes, clientRedraws, needsKeyframes, styleName, MAX_KEYFRAME_REDRAWS, type Keyframe } from "@/lib/videos";
 import { Card, CardHeader, CardBody, Badge, EmptyState } from "@/components/ui";
 import { getTier } from "@/lib/tier";
 import { VideoStatusPoller } from "@/components/video-status-poller";
@@ -98,7 +98,11 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
   const isDialogue = r.brief?.style === "dialogue";
   const redosLeft = MAX_SCENE_REDOS - events.filter(e => e.event_type === "shot_redo_requested").length;
   const lastRedo = events.find(e => ["shot_redone", "shot_redo_failed"].includes(e.event_type));
-  const brief = r.brief as { goal?: string; key_message?: string; cta?: string; style?: string; language?: string; voice?: boolean; visual_directions?: string };
+  const brief = r.brief as { goal?: string; key_message?: string; cta?: string; style?: string; language?: string; voice?: boolean; visual_directions?: string;
+    request?: string; style_by?: string; decision?: { summary?: string; remarks?: string[] } };
+  // One-field form: the engine's agent chose the style (video-engine app/decide.py).
+  const byAgent = brief.style_by === "agent";
+  const choosing = brief.style === "auto";
 
   return (
     <div className="space-y-6">
@@ -113,7 +117,7 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
         <div>
           <h1 className="font-display text-2xl text-navy">{brief.goal ?? "Video request"}</h1>
           <p className="text-sm text-slate-500">
-            {r.duration_s}s · {brief.style} · {brief.language}
+            {choosing ? "" : `${r.duration_s}s · `}{styleName(brief.style)} · {brief.language}
             {brief.voice ? " · with voiceover" : ""}
             {r.regen_of ? " · regeneration" : ""}
           </p>
@@ -323,9 +327,28 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
         />
         <CardBody className="space-y-4">
           {!r.storyboard ? (
-            <EmptyState title="Storyboard in progress" hint="The draft usually takes about 2 minutes. This page refreshes itself." />
+            <EmptyState title="Storyboard in progress"
+              hint={choosing
+                ? "We are choosing the kind of video and writing the script: usually about 2 minutes. This page refreshes itself."
+                : "The draft usually takes about 2 minutes. This page refreshes itself."} />
           ) : (
             <>
+              {byAgent && !choosing && (
+                <div className="rounded-md border border-electric/30 bg-electric/5 p-3 text-xs leading-5 text-slate-700">
+                  <div className="font-medium text-navy">
+                    {brief.decision?.summary || `A ${r.duration_s}-second video: ${styleName(brief.style)}.`}
+                  </div>
+                  {r.cost_estimated_usd != null && (
+                    <div className="mt-0.5 text-slate-500">Estimated production cost: ${Number(r.cost_estimated_usd).toFixed(2)}</div>
+                  )}
+                  {(brief.decision?.remarks ?? []).map((m, i) => (
+                    <div key={i} className="mt-1 text-amber-800">{m}</div>
+                  ))}
+                  {r.status === "storyboard_ready" && (
+                    <div className="mt-1 text-slate-500">Not what you had in mind? Ask for changes below, including a different kind of video.</div>
+                  )}
+                </div>
+              )}
               {r.storyboard.script && (
                 <div>
                   <div className="mb-1 text-[11px] uppercase tracking-wide text-slate-400">Script</div>
@@ -368,7 +391,7 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
                   {keyframeReview ? "Approve storyboard and draw the images" : "Approve storyboard and start production"}
                 </button>
                 <p className="mt-1 text-[11px] text-slate-400">
-                  {isDialogue && r.cost_estimated_usd ? `Estimated production cost: $${Number(r.cost_estimated_usd).toFixed(2)}. ` : ""}
+                  {(isDialogue || byAgent) && r.cost_estimated_usd ? `Estimated production cost: $${Number(r.cost_estimated_usd).toFixed(2)}. ` : ""}
                   {keyframeReview
                     ? "Next you see and approve an image of every shot. Nothing is produced and no credit is used until you approve the images."
                     : <>This uses your video slot for the week{r.regen_of ? " (paid regeneration)" : ""}. Free edits stay unlimited after delivery.</>}
@@ -377,7 +400,8 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
               <details>
                 <summary className="cursor-pointer text-xs font-medium text-slate-600 hover:text-slate-800">Request changes (free)</summary>
                 <form action={`${act}/storyboard`} method="post" className="mt-2 max-w-lg">
-                  <textarea name="notes" rows={3} required placeholder="What should change in the script or shots?"
+                  <textarea name="notes" rows={3} required
+                    placeholder={byAgent ? "e.g. Let the customer say it in their own words; or: make it scenes with a narrator instead" : "What should change in the script or shots?"}
                     className="w-full rounded-md border bg-white p-2 text-xs leading-5" />
                   <button className="mt-1 rounded-md bg-amber-500 px-3 py-1.5 text-xs font-medium text-white hover:opacity-90">
                     Send change request
@@ -455,7 +479,8 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
         <Card>
           <CardHeader title="Brief" />
           <CardBody className="space-y-2 text-xs text-slate-700">
-            <div><span className="font-medium">Goal:</span> {brief.goal}</div>
+            {brief.request && <div className="whitespace-pre-wrap"><span className="font-medium">Your request:</span> {brief.request}</div>}
+            {!brief.request && <div><span className="font-medium">Goal:</span> {brief.goal}</div>}
             {brief.key_message && <div><span className="font-medium">Key message:</span> {brief.key_message}</div>}
             {brief.cta && <div><span className="font-medium">CTA:</span> {brief.cta}</div>}
             {brief.visual_directions && <div><span className="font-medium">Visual directions:</span> {brief.visual_directions}</div>}

@@ -71,7 +71,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   } else {
     const allowed = isVideo ? ["footage", "example", "screen_clip"] : ["look", "as_is", "screen"];
     kind = isVideo ? "reference_video" : "reference_image";
-    meta = { use: allowed.includes(use) ? use : allowed[0] };
+    // "auto" (one-field form): the engine's agent decides what the file is
+    // for from the client's text; until then it behaves like before.
+    meta = use === "auto" ? { use: allowed[0], auto: true } : { use: allowed.includes(use) ? use : allowed[0] };
   }
 
   const svc = serviceRoleClient();
