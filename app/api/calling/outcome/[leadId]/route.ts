@@ -70,7 +70,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ leadId: st
     meeting_at: outcome === "green" ? (meeting_at ?? prev.meeting_at ?? null) : (prev.meeting_at ?? null),
     closed_reason: stage === "closed" ? "no_interest" : null,
     linkedin_connect: linkedin_connect || prev.linkedin_connect || false,
-    ...(email_consent && !prev.email_consent ? { email_consent: true, email_consent_at: now } : {}),
+    // On an orange call the box is the answer to "can I send you something?", so an
+    // unticked box takes back an earlier yes (Codex, 2026-09-30). Other outcomes keep it.
+    ...(outcome === "orange" && email_consent !== !!prev.email_consent
+      ? { email_consent, email_consent_at: email_consent ? now : null }
+      : {}),
   };
 
   // A corrected or dictated address replaces the stored one: the call is the best source.
