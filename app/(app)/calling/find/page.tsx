@@ -12,8 +12,9 @@ type Person = { id: string; first_name: string | null; last_name: string | null;
 type Budget = { cap: number; spent: number; left: number };
 type Saved = { name: string; filters: Filters };
 
-const list = (v: string | undefined) => (v ?? "").split(",").map(x => x.trim()).filter(Boolean);
-const join = (v: string[] | undefined) => (v ?? []).join(", ");
+// One per line: Apollo locations carry their own comma ("Manchester, United Kingdom").
+const list = (v: string | undefined) => (v ?? "").split(/\r?\n|;/).map(x => x.trim()).filter(Boolean);
+const join = (v: string[] | undefined) => (v ?? []).join("\n");
 const qs = (f: Filters, extra: Record<string, string> = {}) => new URLSearchParams({
   titles: join(f.titles), locations: join(f.locations), keywords: join(f.keywords), industries: join(f.industries),
   size_min: String(f.size_min), size_max: String(f.size_max), ...extra,
@@ -75,7 +76,7 @@ export default async function FindInApollo({ searchParams }: { searchParams: Pro
       {notice && <div className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-800">{notice}</div>}
 
       <Card>
-        <CardHeader title="Search" hint="Comma separated. Trades are keywords, not industries." />
+        <CardHeader title="Search" hint="One per line. Trades are keywords, not industries." />
         <CardBody>
           {saved.length > 0 && (
             <div className="mb-4 flex flex-wrap items-center gap-2 text-xs">
@@ -89,10 +90,10 @@ export default async function FindInApollo({ searchParams }: { searchParams: Pro
           <form action="/calling/find" method="get" className="grid gap-4 text-sm md:grid-cols-2">
             <input type="hidden" name="client" value={client} />
             <input type="hidden" name="run" value="1" />
-            <label>Job titles<input name="titles" defaultValue={join(filters.titles)} className={input} placeholder="Owner, Director, Founder" /></label>
-            <label>Locations<input name="locations" defaultValue={join(filters.locations)} className={input} placeholder="Manchester, United Kingdom" /></label>
-            <label>Company keywords<input name="keywords" defaultValue={join(filters.keywords)} className={input} placeholder="plumbing, heating" /></label>
-            <label>Industries (optional)<input name="industries" defaultValue={join(filters.industries)} className={input} placeholder="construction" /></label>
+            <label>Job titles<textarea name="titles" rows={3} defaultValue={join(filters.titles)} className={input} placeholder={"Owner\nDirector"} /></label>
+            <label>Locations<textarea name="locations" rows={3} defaultValue={join(filters.locations)} className={input} placeholder={"Manchester, United Kingdom\nLeeds, United Kingdom"} /></label>
+            <label>Company keywords<textarea name="keywords" rows={3} defaultValue={join(filters.keywords)} className={input} placeholder={"plumbing\nheating"} /></label>
+            <label>Industries (optional)<textarea name="industries" rows={3} defaultValue={join(filters.industries)} className={input} placeholder="construction" /></label>
             <div className="flex items-end gap-3">
               <label className="w-24">Size from<input type="number" name="size_min" min={1} defaultValue={filters.size_min} className={input} /></label>
               <label className="w-24">to<input type="number" name="size_max" min={1} defaultValue={filters.size_max} className={input} /></label>
