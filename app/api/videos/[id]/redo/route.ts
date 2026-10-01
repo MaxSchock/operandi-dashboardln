@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serviceRoleClient } from "@/lib/supabase/server";
-import { resolveVideoActor, loadOwnedRequest } from "@/lib/videos";
+import { resolveVideoActor, loadOwnedRequest, heldFromClient, HELD_MESSAGE } from "@/lib/videos";
 import { MAX_SCENE_REDOS, sceneRedoCostUsd, type RedoWhat } from "@/lib/video-dialogue";
 
 const WHAT = new Set<RedoWhat>(["image", "motion", "voice"]);
@@ -18,6 +18,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const { id } = await ctx.params;
   const request = await loadOwnedRequest(id, actor);
   if (!request) return NextResponse.json({ error: "not found" }, { status: 404 });
+  if (heldFromClient(request, actor)) return NextResponse.json({ error: HELD_MESSAGE }, { status: 409 });
   if (request.brief?.style !== "dialogue") {
     return NextResponse.json({ error: "only dialogue videos can redo a single scene" }, { status: 400 });
   }

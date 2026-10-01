@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, Download } from "lucide-react";
 import { createPublicClient, serviceRoleClient } from "@/lib/supabase/server";
 import { presignGet } from "@/lib/minio";
-import { latestKeyframes, clientRedraws, needsKeyframes, styleName, MAX_KEYFRAME_REDRAWS, type Keyframe } from "@/lib/videos";
+import { latestKeyframes, clientRedraws, needsKeyframes, styleName, isHeld, MAX_KEYFRAME_REDRAWS, type Keyframe, type FinalReview } from "@/lib/videos";
 import { Card, CardHeader, CardBody, Badge, EmptyState } from "@/components/ui";
 import { getTier } from "@/lib/tier";
 import { VideoStatusPoller } from "@/components/video-status-poller";
@@ -38,6 +38,7 @@ type Req = {
   deliverable_key: string | null;
   deliverable_version: number;
   error: string | null;
+  final_review: FinalReview | null;
   created_at: string;
 };
 
@@ -67,7 +68,14 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
   const r = reqData as Req | null;
   if (!r) notFound();
   const assets = (assetData ?? []) as Asset[];
-  const events = (evData ?? []) as Ev[];
+  const allEvents = (evData ?? []) as Ev[];
+  // The final check (video-engine app/review.py) can stop a delivery. Until an
+  // admin releases it the client gets no player, no download and no actions,
+  // only the word that it is being checked.
+  const review = r.final_review;
+  const held = isHeld(r);
+  const hidden = held && !tier.isAdmin;
+  const events = tier.isAdmin ? allEvents : allEvents.filter(e => !e.event_type.startsWith("final_review_"));
   const refs = assets.filter(a => a.kind.startsWith("reference_") || a.kind === "logo");
   const act = `/api/videos/${r.id}`;
   // Parts that failed in the latest production run but did not stop delivery.
@@ -106,7 +114,7 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
 
   return (
     <div className="space-y-6">
-      <VideoStatusPoller status={r.status} />
+      <VideoStatusPoller status={hidden ? "rendering" : r.status} />
       <div>
         <Link href="/videos" className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700">
           <ArrowLeft className="h-3 w-3" /> Back to videos
@@ -122,8 +130,60 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
             {r.regen_of ? " · regeneration" : ""}
           </p>
         </div>
-        <Badge tone={STATUS_TONE[r.status] ?? "slate"}>{r.status.replace(/_/g, " ")}</Badge>
+        {hidden
+          ? <Badge tone="amber">final check</Badge>
+          : held
+            ? <Badge tone="red">held by final check</Badge>
+            : <Badge tone={STATUS_TONE[r.status] ?? "slate"}>{r.status.replace(/_/g, " ")}</Badge>}
       </header>
+
+      {hidden && (
+        <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+          Your video is produced and in its final check: we look at every video once more before you get it.
+          It appears here as soon as that is done. This page refreshes itself.
+        </div>
+      )}
+
+      {tier.isAdmin && review && (review.state === "hold" || review.issues.length > 0 || review.state === "unchecked") && (
+        <Card>
+          <CardHeader
+            title={`Final check · v${review.version}`}
+            hint={review.state === "hold" ? "the client does not see this video until you release it"
+              : review.state === "released" ? "released by an admin"
+              : review.state === "unchecked" ? "the check could not run; delivered unchecked"
+              : "passed, with notes"}
+            action={<Badge tone={review.state === "hold" ? "red" : review.state === "unchecked" ? "amber" : "green"}>{review.state}</Badge>}
+          />
+          <CardBody className="space-y-3">
+            {review.issues.length > 0 && (
+              <ul className="space-y-1.5 text-xs">
+                {review.issues.map((i, k) => (
+                  <li key={k} className="flex gap-2">
+                    <Badge tone={i.severity === "defect" ? "red" : "amber"}>{i.severity}</Badge>
+                    <span className="text-slate-700">
+                      {i.t !== null && i.t !== undefined ? <span className="text-slate-400">{i.t.toFixed(1)}s · </span> : null}
+                      {i.what}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {(review.skipped ?? []).length > 0 && (
+              <p className="text-[11px] text-slate-400">Could not run: {(review.skipped ?? []).join(", ")}.</p>
+            )}
+            {held && (
+              <form action={`${act}/release`} method="post">
+                <button className="rounded-md bg-emerald-600 px-4 py-2 text-xs font-medium text-white hover:opacity-90">
+                  Release to the client
+                </button>
+                <p className="mt-1 text-[11px] text-slate-400">
+                  Or fix it first with the actions below (edit, redo a scene, regenerate): each new version is checked again.
+                </p>
+              </form>
+            )}
+          </CardBody>
+        </Card>
+      )}
 
       {r.status === "failed" && (
         <div className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700">
@@ -167,7 +227,7 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
       )}
 
       {/* Deliverable player */}
-      {r.deliverable_key && (
+      {r.deliverable_key && !hidden && (
         <Card>
           <CardHeader
             title={`Video · v${r.deliverable_version}`}
@@ -423,7 +483,7 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
       </Card>
 
       {/* Delivered actions */}
-      {r.status === "delivered" && (
+      {r.status === "delivered" && !hidden && (
         <Card>
           <CardHeader title="What next?" />
           <CardBody className="space-y-4">

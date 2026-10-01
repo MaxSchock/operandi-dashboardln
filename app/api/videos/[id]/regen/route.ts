@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serviceRoleClient } from "@/lib/supabase/server";
-import { resolveVideoActor, loadOwnedRequest, addEvent } from "@/lib/videos";
+import { resolveVideoActor, loadOwnedRequest, addEvent, heldFromClient, HELD_MESSAGE } from "@/lib/videos";
 
 /**
  * POST /api/videos/:id/regen — start a paid regeneration: a child request
@@ -15,6 +15,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const { id } = await ctx.params;
   const request = await loadOwnedRequest(id, actor);
   if (!request) return NextResponse.json({ error: "not found" }, { status: 404 });
+  if (heldFromClient(request, actor)) return NextResponse.json({ error: HELD_MESSAGE }, { status: 409 });
   if (!["delivered", "approved", "published"].includes(request.status)) {
     return NextResponse.json({ error: `cannot regenerate from status ${request.status}` }, { status: 409 });
   }

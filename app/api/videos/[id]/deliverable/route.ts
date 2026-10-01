@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { resolveVideoActor, loadOwnedRequest } from "@/lib/videos";
+import { resolveVideoActor, loadOwnedRequest, heldFromClient, HELD_MESSAGE } from "@/lib/videos";
 import { presignGet } from "@/lib/minio";
 
 /**
@@ -13,6 +13,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
   const { id } = await ctx.params;
   const request = await loadOwnedRequest(id, actor);
   if (!request) return NextResponse.json({ error: "not found" }, { status: 404 });
+  if (heldFromClient(request, actor)) return NextResponse.json({ error: HELD_MESSAGE }, { status: 409 });
   if (!request.deliverable_key) return NextResponse.json({ error: "no deliverable yet" }, { status: 404 });
 
   const url = await presignGet(request.deliverable_key, 3600);

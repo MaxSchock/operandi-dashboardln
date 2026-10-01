@@ -5,7 +5,7 @@ import { createPublicClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardBody, Badge, EmptyState } from "@/components/ui";
 import { getTier } from "@/lib/tier";
 import { getClientScope } from "@/lib/scope";
-import { styleName } from "@/lib/videos";
+import { styleName, isHeld, type FinalReview } from "@/lib/videos";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -14,6 +14,7 @@ type Row = {
   id: string;
   client_slug: string;
   status: string;
+  final_review: FinalReview | null;
   brief: { goal?: string; style?: string } | null;
   duration_s: number;
   regen_of: string | null;
@@ -74,7 +75,7 @@ export default async function VideosPage() {
 
   const sb = await createPublicClient();
   let q = sb.from("video_requests")
-    .select("id, client_slug, status, brief, duration_s, regen_of, consumed_credit, deliverable_version, created_at, updated_at")
+    .select("id, client_slug, status, brief, duration_s, regen_of, consumed_credit, deliverable_version, final_review, created_at, updated_at")
     .order("created_at", { ascending: false })
     .limit(100);
   if (tier.isAdmin && scope) q = q.eq("client_slug", scope);
@@ -145,7 +146,9 @@ export default async function VideosPage() {
                         </div>
                       </div>
                     </div>
-                    <Badge tone={STATUS_TONE[r.status] ?? "slate"}>{STATUS_LABEL[r.status] ?? r.status}</Badge>
+                    {isHeld(r)
+                      ? <Badge tone={tier.isAdmin ? "red" : "amber"}>{tier.isAdmin ? "Held: needs your look" : "Final check"}</Badge>
+                      : <Badge tone={STATUS_TONE[r.status] ?? "slate"}>{STATUS_LABEL[r.status] ?? r.status}</Badge>}
                   </Link>
                 </li>
               ))}

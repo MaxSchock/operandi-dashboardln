@@ -20,10 +20,33 @@ export type VideoRequest = {
   deliverable_version: number;
   approved_at: string | null;
   error: string | null;
+  final_review: FinalReview | null;
   created_by: string;
   created_at: string;
   updated_at: string;
 };
+
+/** Verdict of the engine's check of the finished video (video-engine app/review.py). */
+export type FinalReview = {
+  state: "passed" | "hold" | "released" | "unchecked";
+  version: number;
+  issues: { t: number | null; severity: "defect" | "note"; what: string }[];
+  skipped?: string[];
+  at?: string;
+  released_at?: string;
+};
+
+/** A delivered video the final check stopped: only admins see it until one releases it. */
+export function isHeld(r: { status: string; final_review?: FinalReview | null }): boolean {
+  return r.status === "delivered" && r.final_review?.state === "hold";
+}
+
+export const HELD_MESSAGE = "This video is still in its final check. It will be here shortly.";
+
+/** True when the caller is a client and the video is on hold: no player, no download, no actions. */
+export function heldFromClient(r: { status: string; final_review?: FinalReview | null }, actor: VideoActor): boolean {
+  return isHeld(r) && !actor.tier.isAdmin;
+}
 
 export type VideoActor = {
   tier: Tier;
