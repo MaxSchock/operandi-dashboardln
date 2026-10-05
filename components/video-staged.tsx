@@ -492,7 +492,7 @@ function MontagePanel({ data, board, busy, call, pay, jobOf }: Common & { data: 
             const t = approved(s.n);
             const piece = m.timeline?.find(p => p.n === s.n);
             return (
-              <div key={s.n} className="flex shrink-0 items-center gap-3">
+              <div key={s.n} className="flex shrink-0 items-start gap-3">
                 <div className="w-32 space-y-1 text-[11px] text-slate-500">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   {t?.frames[0] ? <img src={t.frames[0]} alt="" className="w-32 rounded-md border" /> : <div className="grid h-24 w-32 place-items-center rounded-md border text-slate-400">shot {i + 1}</div>}
