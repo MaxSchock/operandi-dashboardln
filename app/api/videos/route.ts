@@ -87,6 +87,7 @@ export async function POST(req: NextRequest) {
       visual_directions: visualDirections, linked_post_id: linkedPostId || null, voice,
       aspect: style === "dialogue" ? "9:16" : aspect, hook_type: hookType, topic_pillar: topicPillar, cta_style: ctaStyle,
       ...(style === "dialogue" ? {
+        ...(actor.features.video_staged_flow ? { flow: "staged" } : {}),
         lines, end_url: endUrl || null, music: body.music !== false,
         // The engine converts a recording into a real person's voice only with
         // this: the consent recorded for the client, never a checkbox.
@@ -125,6 +126,8 @@ async function createAuto(req: NextRequest, body: Record<string, unknown>, actor
     status: "draft",
     brief: {
       style: "auto", style_by: "agent", request, language,
+      // Shot by shot: the client approves script, pictures and shots one at a time.
+      ...(actor.features.video_staged_flow ? { flow: "staged" } : {}),
       // Placeholder title until the agent writes one.
       goal: request.length > 80 ? `${request.slice(0, 77)}...` : request,
       linked_post_id: linkedPostId || null, aspect: "9:16", voice: false,

@@ -10,6 +10,8 @@ import { VideoStatusPoller } from "@/components/video-status-poller";
 import { SceneRedo } from "@/components/video-scene-redo";
 import { SubmitDraft } from "@/components/video-submit-draft";
 import { MAX_SCENE_REDOS } from "@/lib/video-dialogue";
+import { StagedVideo } from "./staged";
+import { PaidForm } from "@/components/video-pay";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -67,6 +69,8 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
   ]);
   const r = reqData as Req | null;
   if (!r) notFound();
+  // Step-by-step videos have their own page: script, pictures, shots, montage.
+  if (r.brief?.flow === "staged") return <StagedVideo r={r as unknown as Parameters<typeof StagedVideo>[0]["r"]} isAdmin={tier.isAdmin} />;
   const assets = (assetData ?? []) as Asset[];
   const allEvents = (evData ?? []) as Ev[];
   // The final check (video-engine app/review.py) can stop a delivery. Until an
@@ -93,6 +97,9 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
   // already proved the caller may see this request.
   const { data: cfData } = await serviceRoleClient().schema("outreach").from("client_features")
     .select("video_keyframe_review").eq("client_slug", r.client_slug).maybeSingle();
+  // Every button that costs money shows its price and the month's budget first.
+  const { data: spendData } = await serviceRoleClient().rpc("video_month_spend", { p_client: r.client_slug });
+  const spend = spendData ? { cap_usd: Number(spendData.cap_usd), spent_usd: Number(spendData.spent_usd), pending_usd: Number(spendData.pending_usd) } : null;
   const keyframeReview = !!cfData?.video_keyframe_review && needsKeyframes(r.brief, r.storyboard as Record<string, unknown> | null);
   const kfRows = (kfData ?? []) as Keyframe[];
   const reviewing = ["keyframes_generating", "keyframes_ready"].includes(r.status);
@@ -357,7 +364,7 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
                       <p className="mt-1 text-[11px] text-slate-400">Free. Approved images are kept.</p>
                     </form>
                   )}
-                  <form action={`${act}/produce`} method="post">
+                  <PaidForm action={`${act}/produce`} title="Start production" price={r.cost_estimated_usd} about spend={spend}>
                     <button disabled={!kfAllApproved}
                       className="rounded-md bg-emerald-600 px-4 py-2 text-xs font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40">
                       Approve images and start production
@@ -367,7 +374,7 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
                         ? `This uses your video slot for the week${r.regen_of ? " (paid regeneration)" : ""}. Production takes 15-45 minutes.`
                         : "Available once every image is approved."}
                     </p>
-                  </form>
+                  </PaidForm>
                 </div>
               </>
             )}
@@ -455,7 +462,7 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
 
           {(r.status === "storyboard_ready" || (r.status === "failed" && r.storyboard)) && (
             <div className="space-y-3 border-t pt-4">
-              <form action={`${act}/approve-storyboard`} method="post">
+              <PaidForm action={`${act}/approve-storyboard`} title="Start production" price={r.cost_estimated_usd} about spend={spend} free={keyframeReview}>
                 <button className="rounded-md bg-emerald-600 px-4 py-2 text-xs font-medium text-white hover:opacity-90">
                   {keyframeReview ? "Approve storyboard and draw the images" : "Approve storyboard and start production"}
                 </button>
@@ -465,7 +472,7 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
                     ? "Next you see and approve an image of every shot. Nothing is produced and no credit is used until you approve the images."
                     : <>This uses your video slot for the week{r.regen_of ? " (paid regeneration)" : ""}. Free edits stay unlimited after delivery.</>}
                 </p>
-              </form>
+              </PaidForm>
               <details>
                 <summary className="cursor-pointer text-xs font-medium text-slate-600 hover:text-slate-800">Request changes (free)</summary>
                 <form action={`${act}/storyboard`} method="post" className="mt-2 max-w-lg">
@@ -527,7 +534,7 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
                 <summary className="cursor-pointer text-xs font-medium text-slate-600 hover:text-slate-800">
                   Regenerate video (new footage, uses your 1 paid regeneration)
                 </summary>
-                <form action={`${act}/regen`} method="post" className="mt-2 max-w-lg">
+                <PaidForm action={`${act}/regen`} title="Regenerate the video" price={r.cost_estimated_usd} about spend={spend} className="mt-2 max-w-lg">
                   <textarea name="notes" rows={3} required placeholder="What should be different in the new version?"
                     className="w-full rounded-md border bg-white p-2 text-xs leading-5" />
                   <button className="mt-1 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:opacity-90">
@@ -536,7 +543,7 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
                   <p className="mt-1 text-[11px] text-slate-400">
                     Creates new footage from an updated storyboard you approve first. Available once per video.
                   </p>
-                </form>
+                </PaidForm>
               </details>
             )}
           </CardBody>

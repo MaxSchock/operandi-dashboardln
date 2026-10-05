@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serviceRoleClient } from "@/lib/supabase/server";
 import { resolveVideoActor, loadOwnedRequest, addEvent } from "@/lib/videos";
+import { isStaged, enqueue } from "@/lib/video-staged";
 
 /**
  * POST /api/videos/:id/submit — the wizard finished uploading and confirming
@@ -12,6 +13,16 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
   const { id } = await ctx.params;
   const request = await loadOwnedRequest(id, actor);
   if (!request) return NextResponse.json({ error: "not found" }, { status: 404 });
+
+  if (isStaged(request)) {
+    // Step by step: the engine writes the shot table and its suggestions; the
+    // request stays a draft until that job has run.
+    if (request.status !== "draft") return NextResponse.json({ error: "already submitted" }, { status: 409 });
+    const res = await enqueue(serviceRoleClient(), request, actor, "script_propose");
+    if (!res.ok) return NextResponse.json({ error: res.error }, { status: res.reason === "already_queued" ? 409 : 400 });
+    await addEvent(request.id, "submitted", actor);
+    return NextResponse.json({ ok: true });
+  }
 
   const upd = await serviceRoleClient().from("video_requests")
     .update({ status: "storyboard_pending", updated_at: new Date().toISOString() })

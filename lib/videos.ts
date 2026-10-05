@@ -21,6 +21,7 @@ export type VideoRequest = {
   approved_at: string | null;
   error: string | null;
   final_review: FinalReview | null;
+  montage: Record<string, unknown> | null;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -61,6 +62,8 @@ export type VideoActor = {
     voice_consent_at: string | null;
     /** Client reviews the keyframes before production; credit is consumed at that approval. */
     video_keyframe_review: boolean;
+    /** The client directs the video shot by shot (lib/video-staged.ts). */
+    video_staged_flow: boolean;
   };
 };
 
@@ -83,13 +86,7 @@ export async function resolveVideoActor(): Promise<{ actor: VideoActor | null; e
   }
   if (!clientSlug) return { actor: null, error: "forbidden", status: 403 };
 
-  const svc = serviceRoleClient();
-  const [{ data: cf }, { data: cm }] = await Promise.all([
-    svc.schema("outreach").from("client_features")
-      .select("video_enabled, video_weekly_quota, video_regens_per_video, video_max_duration_s, voice_consent_at, video_keyframe_review")
-      .eq("client_slug", clientSlug).maybeSingle(),
-    svc.from("clients_master").select("content_engine_slug").eq("client_slug", clientSlug).maybeSingle(),
-  ]);
+  const { cf, cm } = await videoClient(clientSlug);
   if (!cf?.video_enabled) return { actor: null, error: "video is not enabled for this client", status: 403 };
   if (!cm?.content_engine_slug) return { actor: null, error: "client has no content engine", status: 403 };
 
@@ -99,13 +96,36 @@ export async function resolveVideoActor(): Promise<{ actor: VideoActor | null; e
   };
 }
 
-/** Load a request the actor is allowed to touch (own client, or admin). */
+async function videoClient(clientSlug: string) {
+  const svc = serviceRoleClient();
+  const [{ data: cf }, { data: cm }] = await Promise.all([
+    svc.schema("outreach").from("client_features")
+      .select("video_enabled, video_weekly_quota, video_regens_per_video, video_max_duration_s, voice_consent_at, video_keyframe_review, video_staged_flow")
+      .eq("client_slug", clientSlug).maybeSingle(),
+    svc.from("clients_master").select("content_engine_slug").eq("client_slug", clientSlug).maybeSingle(),
+  ]);
+  return { cf: cf as VideoActor["features"] | null, cm };
+}
+
+/**
+ * Load a request the actor is allowed to touch (own client, or admin). An
+ * admin may open a video of a client other than the one in the scope switcher:
+ * from here on the actor carries the settings of the client that owns the
+ * video, never those of the selected one.
+ */
 export async function loadOwnedRequest(id: string, actor: VideoActor): Promise<VideoRequest | null> {
   const svc = serviceRoleClient();
   const { data } = await svc.from("video_requests").select("*").eq("id", id).maybeSingle();
   const req = data as VideoRequest | null;
   if (!req) return null;
-  if (!actor.tier.isAdmin && req.client_slug !== actor.clientSlug) return null;
+  if (req.client_slug !== actor.clientSlug) {
+    if (!actor.tier.isAdmin) return null;
+    const { cf, cm } = await videoClient(req.client_slug);
+    if (!cf?.video_enabled || !cm?.content_engine_slug) return null;
+    actor.clientSlug = req.client_slug;
+    actor.contentSlug = cm.content_engine_slug;
+    actor.features = cf;
+  }
   return req;
 }
 
