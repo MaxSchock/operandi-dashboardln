@@ -33,6 +33,9 @@ export type StagedShot = {
   person_ref?: string | null;
   /** The shot that holds the picture of the new person (one picture for all their shots). */
   person_from?: number | null;
+  /** kind "clip": the stretch said in another language (a new voice, the lips moved to it).
+   * `of` is the heard text the translation was made from. */
+  dub?: { lang: string; text: string; of: string } | null;
 };
 
 export type Region = { x: number; y: number; w: number; h: number };
@@ -52,13 +55,30 @@ export type Board = {
   scenes?: Record<string, string>;
   costs: { image: number; music: number; captions: number; shots: Record<string, { film: number; lips: number; voice: number }> };
   needs: { n: number; role: "start" | "end" }[];
+  /** Per clip whose person is replaced: the people seen in it and which one is replaced
+   * (index). With several people and no answer the script cannot be approved. */
+  clip_people?: Record<string, { people: string[]; who: number | null; by?: string }>;
 };
+
+/** The clips with several people where nobody said yet who is replaced. */
+export function whoMissing(b: Board, answers: Record<string, number | null> = {}): string[] {
+  const out: string[] = [];
+  for (const s of b.shots) {
+    const ref = s.source_ref ?? "";
+    if (s.kind !== "clip" || s.recipe !== "swap" || !ref || out.includes(ref)) continue;
+    const cp = b.clip_people?.[ref];
+    const who = ref in answers ? answers[ref] : cp?.who;
+    if (cp && cp.people.length > 1 && !(Number.isInteger(who) && who! >= 0 && who! < cp.people.length)) out.push(ref);
+  }
+  return out;
+}
 
 export type Take = {
   id: string; shot_n: number; version: number; storage_key: string; frames_prefix: string | null;
   audio_key: string | null; model: string | null; duration_s: number; voice_end_s: number | null;
   status: "proposed" | "approved" | "rejected" | "failed" | "stale"; cost_usd: number; notes: string | null;
-  lips: { where?: string | null; done?: boolean; checked?: boolean; reason?: string; check?: string[]; region?: Region } | null;
+  lips: { where?: string | null; done?: boolean; checked?: boolean; reason?: string; check?: string[]; region?: Region;
+    recipe?: string; dub?: string; dub_failed?: string } | null;
 };
 
 export type Job = {
@@ -151,12 +171,17 @@ export type ShotEdit = {
   lips_where?: string; narration?: string | null; to_phone?: boolean;
   /** kind "clip" only: the stretch of the clip, in its seconds. */
   from_s?: number; to_s?: number;
+  /** kind "clip", dubbed: the translated words (empty: translate again), or the dubbing taken off. */
+  dub_text?: string; dub_off?: boolean;
 };
+
+export const LANG_NAMES: Record<string, string> = { de: "German", en: "English", fr: "French", nl: "Dutch", es: "Spanish" };
 
 /** Apply the client's own edits of the shot table. The engine lays the table
  * out again and recomputes lengths and prices (script_apply). */
 export function applyScriptEdits(board: Board, edits: ShotEdit[], endText: string | null | undefined,
-                                 decisions: Record<string, string>): { board: Board; error?: string } {
+                                 decisions: Record<string, string>,
+                                 who: Record<string, unknown> = {}): { board: Board; error?: string } {
   if (!edits.length) return { board, error: "the video needs at least one shot" };
   if (edits.length > 12) return { board, error: "at most 12 shots" };
   const by = new Map(board.shots.map(s => [s.n, s as StagedShot & Record<string, unknown>]));
@@ -184,6 +209,11 @@ export function applyScriptEdits(board: Board, edits: ShotEdit[], endText: strin
         }
       }
       s.text = old.text; s.text_by = old.text_by;
+      if (old.dub && e.dub_off) delete s.dub;
+      else if (old.dub && e.dub_text !== undefined) {
+        // Emptied: the engine translates it again when it applies the script.
+        s.dub = { ...old.dub, text: String(e.dub_text).trim().slice(0, 600) };
+      }
       shots.push(s); order.push(s.n); continue;
     }
     s.text = text;
@@ -210,7 +240,15 @@ export function applyScriptEdits(board: Board, edits: ShotEdit[], endText: strin
       ? { ...p, status: decisions[p.id] as Proposal["status"] } : p);
   const end_card = endText === undefined ? board.end_card
     : { ...board.end_card, text: String(endText ?? "").trim().slice(0, 300) || null };
-  return { board: { ...board, shots, order, proposals, end_card } };
+  // Who in a clip with several people is replaced: only an index of the list the engine saw.
+  const clip_people = { ...(board.clip_people ?? {}) };
+  for (const [ref, v] of Object.entries(who)) {
+    const cp = clip_people[ref];
+    if (cp && Number.isInteger(v) && (v as number) >= 0 && (v as number) < cp.people.length && cp.who !== v) {
+      clip_people[ref] = { ...cp, who: v as number, by: "client" };
+    }
+  }
+  return { board: { ...board, shots, order, proposals, end_card, ...(board.clip_people ? { clip_people } : {}) } };
 }
 
 const JOINS = new Set(["cut", "dissolve", "fadewhite", "fadeblack"]);

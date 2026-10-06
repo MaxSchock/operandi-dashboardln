@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { serviceRoleClient } from "@/lib/supabase/server";
 import { resolveVideoActor, loadOwnedRequest, addEvent, heldFromClient, HELD_MESSAGE } from "@/lib/videos";
 import {
-  isStaged, boardOf, shotsInOrder, shotsOfPerson, enqueue, cleanRegion, applyScriptEdits, cleanMontage,
+  isStaged, boardOf, shotsInOrder, shotsOfPerson, enqueue, cleanRegion, applyScriptEdits, cleanMontage, whoMissing,
   type Board, type Montage, type ShotEdit, type Take,
 } from "@/lib/video-staged";
 
@@ -53,8 +53,12 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     if (await working("script_apply")) return bad(BUSY, 409);
     const rows = Array.isArray(body.shots) ? (body.shots as unknown[]).filter(x => x && typeof x === "object") as ShotEdit[] : [];
     const decisions = body.proposals && typeof body.proposals === "object" ? body.proposals as Record<string, string> : {};
-    const edited = applyScriptEdits(board, rows, typeof body.end_text === "string" ? body.end_text : undefined, decisions);
+    const who = body.clip_who && typeof body.clip_who === "object" ? body.clip_who as Record<string, unknown> : {};
+    const edited = applyScriptEdits(board, rows, typeof body.end_text === "string" ? body.end_text : undefined, decisions, who);
     if (edited.error) return bad(edited.error);
+    if (body.approve === true && whoMissing(edited.board).length) {
+      return bad("Several people appear in your clip: choose which of them is replaced, then approve.");
+    }
     const upd = await svc.from("video_requests").update({ storyboard: edited.board, updated_at: new Date().toISOString() })
       .eq("id", request.id).eq("status", "script_ready").select("id");
     if (upd.error || !upd.data?.length) return bad(upd.error?.message ?? "the video changed, reload the page", 409);
@@ -62,6 +66,31 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     await addEvent(request.id, approve ? "script_approve_requested" : "script_edited", actor);
     return queued(await enqueue(svc, { ...request, storyboard: edited.board as unknown as Record<string, unknown> }, actor,
       "script_apply", { params: { approve } }));
+  }
+
+  if (action === "clip_who") {
+    // Who in a clip with several people is replaced, said after the script was approved.
+    if (!["script_approved", "images_approved", "shots_ready", "delivered"].includes(request.status)) return bad("not available now", 409);
+    const ref = String(body.clip ?? "");
+    const cp = board.clip_people?.[ref];
+    const who = Number(body.who);
+    if (!cp || !Number.isInteger(who) || who < 0 || who >= cp.people.length) return bad("that person is not in the list");
+    if (cp.who === who) return NextResponse.json({ ok: true });
+    const shots = board.shots.filter(s => s.kind === "clip" && s.recipe === "swap" && s.source_ref === ref).map(s => s.n);
+    for (const n of shots) if (await working("shot_film", n)) return bad(BUSY, 409);
+    const now = new Date().toISOString();
+    // A take made with the other person replaced no longer shows what was chosen.
+    const stale = await svc.from("video_shot_takes").update({ status: "stale", updated_at: now })
+      .eq("request_id", request.id).in("shot_n", shots).in("status", ["proposed", "approved"]).select("id");
+    if (stale.error) return bad(stale.error.message, 500);
+    const back = !!stale.data?.length && ["shots_ready", "delivered"].includes(request.status);
+    const upd = await svc.from("video_requests").update({
+      storyboard: { ...board, clip_people: { ...board.clip_people, [ref]: { ...cp, who, by: "client" } } },
+      ...(back ? { status: "images_approved" } : {}), updated_at: now })
+      .eq("id", request.id).eq("status", request.status).select("id");
+    if (upd.error || !upd.data?.length) return bad(upd.error?.message ?? "the video changed, reload the page", 409);
+    await addEvent(request.id, "clip_who_chosen", actor, { clip: ref, who: cp.people[who], takes_stale: stale.data?.length ?? 0 });
+    return NextResponse.json({ ok: true });
   }
 
   if (action === "draw") {
@@ -140,7 +169,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const onlyLips = body.what === "lips";
     const isClip = s.kind === "clip";
     if (isClip && onlyLips) return bad("a shot from your clip keeps its own lips");
-    const price = Math.round((onlyLips ? c.lips : c.film + c.lips + c.voice) * 100) / 100;
+    // Only the new voice and its lips: the person already put into the clip is kept.
+    const onlyDub = body.what === "dub";
+    if (onlyDub && !(isClip && s.recipe === "swap" && s.dub?.text)) return bad("this shot has no dubbing to make again");
+    const price = Math.round((onlyLips ? c.lips : onlyDub ? c.lips + c.voice : c.film + c.lips + c.voice) * 100) / 100;
     if (!paid(price)) return bad(STALE, 409);
     const note = String(body.note ?? "").trim().slice(0, 600);
     const region = cleanRegion(body.region);
@@ -160,7 +192,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       change = cr.data.id;
     }
     const res = await enqueue(svc, request, actor, "shot_film", { shot: s.n, estimate: price, change,
-      params: { note, region, ...(onlyLips ? { what: "lips" } : {}) } });
+      params: { note, region, ...(onlyLips ? { what: "lips" } : onlyDub ? { what: "dub" } : {}) } });
     if (!res.ok && change) await svc.from("video_change_requests").update({ status: "dismissed" }).eq("id", change);
     return queued(res);
   }

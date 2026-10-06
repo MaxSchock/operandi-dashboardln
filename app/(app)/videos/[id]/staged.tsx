@@ -48,7 +48,8 @@ export async function StagedVideo({ r, isAdmin }: { r: Row; isAdmin: boolean }) 
     return {
       id: t.id, n: t.shot_n, version: t.version, status: t.status, notes: t.notes, duration_s: Number(t.duration_s),
       voice_end_s: t.voice_end_s === null ? null : Number(t.voice_end_s), first_last: String(t.model ?? "").includes("first-last"),
-      lips: t.lips ? { where: t.lips.where ?? null, done: t.lips.done !== false, reason: t.lips.reason ?? null } : null,
+      lips: t.lips ? { where: t.lips.where ?? null, done: t.lips.done !== false, reason: t.lips.reason ?? null,
+        dub: t.lips.dub ?? null, dub_failed: t.lips.dub_failed ?? null } : null,
       url: await sign(t.storage_key),
       frames: await Promise.all(Array.from({ length: count }, (_, i) => sign(`${t.frames_prefix}/f-${String(i + 1).padStart(3, "0")}.jpg`))),
       checks: isAdmin ? await Promise.all((t.lips?.check ?? []).slice(0, 3).map(sign)) : [],

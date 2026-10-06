@@ -5,12 +5,12 @@ import { useRouter } from "next/navigation";
 import { Card, CardHeader, CardBody, Badge } from "@/components/ui";
 import { PayDialog, type MonthSpend } from "@/components/video-pay";
 import { ChangeMarker } from "@/components/video-change-marker";
-import { shotsInOrder, CLIP_MAX_S, type Board, type Job, type Join, type Montage, type Region, type ShotEdit, type StagedShot } from "@/lib/video-staged";
+import { shotsInOrder, whoMissing, CLIP_MAX_S, LANG_NAMES, type Board, type Job, type Join, type Montage, type Region, type ShotEdit, type StagedShot } from "@/lib/video-staged";
 
 type Image = { id: string; n: number; role: "start" | "end"; version: number; status: string; notes: string | null; carried: boolean; url: string };
 type TakeView = {
   id: string; n: number; version: number; status: string; notes: string | null; duration_s: number; voice_end_s: number | null;
-  first_last: boolean; lips: { where: string | null; done: boolean; reason: string | null } | null; url: string; frames: string[]; checks: string[];
+  first_last: boolean; lips: { where: string | null; done: boolean; reason: string | null; dub?: string | null; dub_failed?: string | null } | null; url: string; frames: string[]; checks: string[];
 };
 export type StagedData = {
   id: string; status: string; isAdmin: boolean; error: string | null; held: boolean;
@@ -91,8 +91,19 @@ export function VideoStaged({ data }: { data: StagedData }) {
       )}
       {!board && <Card><CardBody><p className="text-sm text-slate-600">The shots are being written. This takes about a minute.</p></CardBody></Card>}
 
-      {board && status === "script_ready" && <Script key={JSON.stringify(board.shots) + JSON.stringify(board.proposals)} board={board} clips={data.clips} busy={busy || !!jobOf("script_apply")} call={call} />}
+      {board && status === "script_ready" && <Script key={JSON.stringify(board.shots) + JSON.stringify(board.proposals) + JSON.stringify(board.clip_people ?? {})} board={board} clips={data.clips} busy={busy || !!jobOf("script_apply")} call={call} />}
       {board && stage > 2 && <ScriptSummary board={board} />}
+      {board && stage >= 3 && Object.entries(board.clip_people ?? {}).filter(([ref, cp]) => cp.people.length > 1
+        && board.shots.some(s => s.kind === "clip" && s.recipe === "swap" && s.source_ref === ref)).map(([ref, cp]) => (
+        <Card key={ref}><CardBody className={`space-y-1 text-xs ${cp.who == null ? "bg-amber-50" : ""}`}>
+          <div className="font-medium text-slate-700" data-testid="clip-who-late">{cp.people.length} people appear in your clip {fileName(ref)}. Who is replaced?{cp.who == null ? " Choose before the person is put into the clip." : ""}</div>
+          {cp.people.map((p, k) => (
+            <label key={k} className="flex items-center gap-2 text-slate-700">
+              <input type="radio" name={`who-late-${ref}`} checked={cp.who === k} disabled={busy} onChange={() => call({ action: "clip_who", clip: ref, who: k })} />
+              {p}</label>
+          ))}
+        </CardBody></Card>
+      ))}
       {board && stage >= 3 && <Images data={data} board={board} busy={busy} call={call} pay={pay} setMark={setMark} jobOf={jobOf} />}
       {board && stage >= 4 && <Shots data={data} board={board} busy={busy} call={call} pay={pay} setMark={setMark} jobOf={jobOf} />}
       {board && stage >= 5 && <MontagePanel key={JSON.stringify(data.montage)} data={data} board={board} busy={busy || status === "assembling" || !!jobOf("assemble")} call={call} pay={pay} jobOf={jobOf} />}
@@ -165,7 +176,7 @@ function MarkDialog({ mark, spend, busy, onConfirm, onCancel }: {
 
 /* ---------- stage 0: the shot table ---------- */
 
-type Row = ShotEdit & { key: string; text_by?: string; locked?: boolean; duration_s?: number; clip?: string | null; how?: string | null; from?: string; to?: string };
+type Row = ShotEdit & { key: string; text_by?: string; locked?: boolean; duration_s?: number; clip?: string | null; how?: string | null; from?: string; to?: string; dub_lang?: string };
 
 /** A stretch of the client's clip: the player shows that part only. */
 function ClipStretch({ src, from, to }: { src?: string; from: number; to: number }) {
@@ -189,10 +200,16 @@ function Script({ board, clips, busy, call }: { board: Board; clips: Record<stri
     lips_where: s.lips?.where ?? (s.kind === "pantalla" ? "phone" : "face"), narration: s.narration ?? "", to_phone: !!s.to_phone,
     text_by: s.text_by, locked: s.kind === "clip", duration_s: s.duration_s,
     ...(s.kind === "clip" ? { clip: s.source_ref, how: clipWords(s), from: String(s.source_start_s ?? 0),
-      to: String(s.source_end_s ?? Math.round(((s.source_start_s ?? 0) + s.duration_s) * 100) / 100) } : {}),
+      to: String(s.source_end_s ?? Math.round(((s.source_start_s ?? 0) + s.duration_s) * 100) / 100),
+      ...(s.dub ? { dub_lang: s.dub.lang, dub_text: s.dub.text, dub_off: false } : {}) } : {}),
   })));
   const [decisions, setDecisions] = useState<Record<string, string>>(() => Object.fromEntries(board.proposals.map(p => [p.id, p.status])));
   const [endText, setEndText] = useState(board.end_card?.text ?? "");
+  // Clips whose person is replaced and that show several people: the client says who.
+  const several = Object.entries(board.clip_people ?? {}).filter(([ref, cp]) => cp.people.length > 1
+    && board.shots.some(s => s.kind === "clip" && s.recipe === "swap" && s.source_ref === ref));
+  const [who, setWho] = useState<Record<string, number | null>>(() => Object.fromEntries(several.map(([ref, cp]) => [ref, cp.who])));
+  const unanswered = whoMissing(board, who);
   const added = useRef(0);
   const set = (i: number, patch: Partial<Row>) => setRows(r => r.map((x, j) => j === i ? { ...x, ...patch } : x));
   const move = (i: number, d: number) => setRows(r => {
@@ -204,8 +221,8 @@ function Script({ board, clips, busy, call }: { board: Board; clips: Record<stri
     return (board.needs?.length ?? 0) * board.costs.image + shots + board.costs.music + board.costs.captions;
   }, [board]);
   const send = (approve: boolean) => call({
-    action: "script_save", approve, end_text: endText, proposals: decisions,
-    shots: rows.map(({ key: _k, text_by: _t, locked: _l, duration_s: _d, clip: _c, how: _h, from, to, ...e }) =>
+    action: "script_save", approve, end_text: endText, proposals: decisions, clip_who: who,
+    shots: rows.map(({ key: _k, text_by: _t, locked: _l, duration_s: _d, clip: _c, how: _h, dub_lang: _g, from, to, ...e }) =>
       _l ? { ...e, from_s: Number(from), to_s: Number(to) } : e),
   });
   const open = board.proposals.filter(p => !p.applied);
@@ -232,6 +249,16 @@ function Script({ board, clips, busy, call }: { board: Board; clips: Record<stri
             ))}
           </div>
         )}
+        {several.map(([ref, cp]) => (
+          <div key={ref} className={`space-y-1 rounded-md border px-3 py-2 text-xs ${who[ref] == null ? "border-amber-300 bg-amber-50" : ""}`} data-testid="clip-who">
+            <div className="font-medium text-slate-700">{cp.people.length} people appear in your clip {fileName(ref)}. Who is replaced?</div>
+            {cp.people.map((p, k) => (
+              <label key={k} className="flex items-center gap-2 text-slate-700">
+                <input type="radio" name={`who-${ref}`} checked={who[ref] === k} onChange={() => setWho(w => ({ ...w, [ref]: k }))} data-testid={`clip-who-${k}`} />
+                {p}</label>
+            ))}
+          </div>
+        ))}
         <div className="space-y-3">
           {rows.map((r, i) => (
             <div key={r.key} className="rounded-md border p-3" data-testid="shot-row">
@@ -248,8 +275,17 @@ function Script({ board, clips, busy, call }: { board: Board; clips: Record<stri
                 <div className="flex flex-wrap items-start gap-3 text-xs text-slate-600" data-testid="clip-row">
                   <ClipStretch src={r.clip ? clips[r.clip] : undefined} from={Number(r.from)} to={Number(r.to)} />
                   <div className="max-w-md space-y-2">
-                    <p>Your clip {fileName(r.clip)}, {r.how}. It keeps its own sound.</p>
+                    <p>Your clip {fileName(r.clip)}, {r.how}. {r.dub_lang && !r.dub_off ? `Said in ${LANG_NAMES[r.dub_lang] ?? r.dub_lang} by a new voice, with the lips moved to it.` : "It keeps its own sound."}</p>
                     <p className="text-slate-500">{r.text_by === "clip" ? "Said in this part: " : ""}{r.text}</p>
+                    {r.dub_lang && (
+                      <div className="space-y-1" data-testid="clip-dub">
+                        {!r.dub_off && <label className="block text-[11px] text-slate-500">In {LANG_NAMES[r.dub_lang] ?? r.dub_lang} (it has to fit into the same seconds; empty it to have it translated again)
+                          <textarea rows={2} value={r.dub_text ?? ""} onChange={e => set(i, { dub_text: e.target.value })} className={`${input} block w-full`} data-testid="clip-dub-text" /></label>}
+                        <label className="flex items-center gap-1 text-[11px] text-slate-500">
+                          <input type="checkbox" checked={!!r.dub_off} onChange={e => set(i, { dub_off: e.target.checked })} data-testid="clip-dub-off" />
+                          Keep the original voice in this shot</label>
+                      </div>
+                    )}
                     <div className="flex flex-wrap items-end gap-2">
                       <label className="text-[11px] text-slate-500">From second
                         <input type="number" min={0} step={0.1} value={r.from ?? ""} onChange={e => set(i, { from: e.target.value })} className={`${input} block`} style={{ width: "5rem" }} data-testid="clip-from" /></label>
@@ -301,7 +337,8 @@ function Script({ board, clips, busy, call }: { board: Board; clips: Record<stri
         </label>
         <div className="flex flex-wrap items-center gap-2 border-t pt-4">
           <button type="button" disabled={busy} onClick={() => send(false)} className={`${btn} border text-slate-700`} data-testid="script-save">Save changes</button>
-          <button type="button" disabled={busy} onClick={() => send(true)} className={`${btn} bg-emerald-600 text-white`} data-testid="script-approve">Save and approve script</button>
+          <button type="button" disabled={busy || unanswered.length > 0} title={unanswered.length ? "First choose who in your clip is replaced" : undefined} onClick={() => send(true)} className={`${btn} bg-emerald-600 text-white disabled:opacity-50`} data-testid="script-approve">Save and approve script</button>
+          {unanswered.length > 0 && <span className="text-[11px] text-amber-700">Choose above who in your clip is replaced.</span>}
           <span className="text-[11px] text-slate-400">Free. With this table the whole video comes to about {usd(total)}, paid step by step.</span>
         </div>
       </CardBody>
@@ -438,9 +475,12 @@ function ShotCard({ s, data, board, busy, call, pay, setMark, jobOf, price }: Co
   };
   const label = shotLabel(board, s.n);
   const isClip = s.kind === "clip", swap = isClip && s.recipe === "swap";
+  const dubbed = isClip && !!s.dub?.text;
+  const dubLang = dubbed ? LANG_NAMES[s.dub!.lang] ?? s.dub!.lang : "";
+  const dubPrice = Math.round(((board.costs.shots[String(s.n)]?.lips ?? 0) + (board.costs.shots[String(s.n)]?.voice ?? 0)) * 100) / 100;
   return (
     <div className="space-y-2 border-b pb-4 last:border-0" data-testid={`shot-${s.n}`}>
-      <div className="text-xs font-medium text-navy">Shot {label} <span className="font-normal text-slate-500">{s.speaker ? `${s.speaker}: ` : ""}{s.text}</span></div>
+      <div className="text-xs font-medium text-navy">Shot {label} <span className="font-normal text-slate-500">{s.speaker ? `${s.speaker}: ` : ""}{dubbed ? s.dub!.text : s.text}</span></div>
       {take && (
         <div className="flex flex-wrap items-start gap-4">
           <video ref={video} key={take.id} src={take.url} controls playsInline preload="metadata" className="w-44 rounded-md border bg-black" />
@@ -462,6 +502,14 @@ function ShotCard({ s, data, board, busy, call, pay, setMark, jobOf, price }: Co
                   Mark the face ({usd(lipsPrice)})</button>}
               </div>
             )}
+            {dubbed && take.lips?.dub_failed && take.status !== "stale" && (
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-amber-800" data-testid="dub-failed">
+                This take still has the original voice: the {dubLang} voice could not be made ({take.lips.dub_failed}).
+                {swap && !job && <button type="button" disabled={busy} className="ml-1 underline" data-testid="take-dub"
+                  onClick={() => pay(`Say shot ${label} in ${dubLang}`, dubPrice, { action: "film", shot: s.n, what: "dub" })}>
+                  Make the voice ({usd(dubPrice)})</button>}
+              </div>
+            )}
             {take.checks.length > 0 && <div className="flex gap-1">{take.checks.map(c => <a key={c} href={c} target="_blank" rel="noreferrer">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={c} alt="lips check" className="h-16 rounded border" /></a>)}</div>}
@@ -469,6 +517,9 @@ function ShotCard({ s, data, board, busy, call, pay, setMark, jobOf, price }: Co
               <div className="flex flex-wrap gap-2">
                 {take.status !== "approved" && <button type="button" disabled={busy} className={`${btn} bg-emerald-600 text-white`} data-testid="take-pick"
                   onClick={() => call({ action: "take_pick", take: take.id })}>Approve this take</button>}
+                {isClip && !swap && dubbed && !job && <button type="button" disabled={busy} className={`${btn} border text-slate-700`} data-testid="take-redub"
+                  onClick={() => pay(`Say shot ${label} in ${dubLang} again`, price, { action: "film", shot: s.n })}>
+                  Make it again ({usd(price)})</button>}
                 {swap && !job && <button type="button" disabled={busy} className={`${btn} border text-slate-700`} data-testid="take-reswap"
                   onClick={() => pay(`Put the person into shot ${label} again`, price, { action: "film", shot: s.n })}>
                   Make it again ({usd(price)})</button>}
@@ -480,11 +531,11 @@ function ShotCard({ s, data, board, busy, call, pay, setMark, jobOf, price }: Co
           </div>
         </div>
       )}
-      {job ? <p className="text-[11px] text-amber-700">{swap ? "The person is being put into your clip. This takes 10 to 20 minutes." : isClip ? "Being cut from your clip." : "Being filmed. A shot takes 3 to 15 minutes."}</p>
+      {job ? <p className="text-[11px] text-amber-700">{swap ? "The person is being put into your clip. This takes 10 to 20 minutes." : dubbed ? `Being cut from your clip and said in ${dubLang}. This takes a few minutes.` : isClip ? "Being cut from your clip." : "Being filmed. A shot takes 3 to 15 minutes."}</p>
         : (!take || list.every(t => t.status === "stale")) && (
           <button type="button" disabled={busy} className={`${btn} bg-navy text-white`} data-testid="shot-film"
             onClick={() => pay(swap ? `Put the person into shot ${label}` : `Film shot ${label}`, price, { action: "film", shot: s.n, ...(list.length ? { note: "Filmed again from the picture approved now." } : {}) })}>
-            {swap ? `Put the person into this part of your clip (${usd(price)})` : isClip ? "Cut this part from your clip (free)" : `Film this shot (${usd(price)})`}</button>
+            {swap ? `Put the person into this part of your clip${dubbed ? ` and say it in ${dubLang}` : ""} (${usd(price)})` : dubbed ? `Cut this part and say it in ${dubLang} (${usd(price)})` : isClip ? "Cut this part from your clip (free)" : `Film this shot (${usd(price)})`}</button>
         )}
     </div>
   );
