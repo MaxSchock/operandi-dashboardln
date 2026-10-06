@@ -7,6 +7,7 @@ import { getTier } from "@/lib/tier";
 import { resolveVideoActor } from "@/lib/videos";
 import { VideoWizard } from "@/components/video-wizard";
 import { VideoRequestSimple } from "@/components/video-request-simple";
+import type { MonthSpend } from "@/components/video-pay";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +54,12 @@ export default async function NewVideoPage({ searchParams }: { searchParams: Pro
     if (!characters.some(x => x.name === c.name)) characters.push({ name: c.name, hasVoice: !!c.voice_sample_key && voiceAvailable });
   }
 
+  let spend: MonthSpend | null = null;
+  if (actor.features.video_staged_flow) {
+    const { data: m } = await serviceRoleClient().rpc("video_month_spend", { p_client: actor.clientSlug });
+    spend = (m as MonthSpend | null) ?? null;
+  }
+
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
@@ -84,6 +91,8 @@ export default async function NewVideoPage({ searchParams }: { searchParams: Pro
               linkedPosts={linkedPosts}
               characters={characters.map(c => c.name)}
               keyframeReview={actor.features.video_keyframe_review}
+              staged={actor.features.video_staged_flow}
+              spend={spend}
             />
           )}
         </CardBody>

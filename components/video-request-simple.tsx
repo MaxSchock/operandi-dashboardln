@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { PayDialog, type MonthSpend } from "@/components/video-pay";
+import { HEAR_USD, HEAR_MAX_VIDEOS } from "@/lib/video-staged";
 
 type LinkedPost = { id: string; label: string };
 
@@ -20,7 +22,12 @@ export function VideoRequestSimple({
   linkedPosts,
   characters = [],
   keyframeReview = false,
+  staged = false,
+  spend = null,
 }: {
+  /** Step-by-step flow: uploaded clips are listened to (paid) to write the script. */
+  staged?: boolean;
+  spend?: MonthSpend | null;
   maxDurationS: number;
   linkedPosts: LinkedPost[];
   /** Names of the client's approved characters, shown as a hint. */
@@ -37,10 +44,22 @@ export function VideoRequestSimple({
   const host = characters[0] ?? "our founder";
   const example = `e.g. A customer asks ${host} "How fast can I start?" and ${host} answers that it only takes one call. End with our website.`;
 
-  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
+  const [confirm, setConfirm] = useState<FormData | null>(null);
+  const hearPrice = staged
+    ? Math.round(Math.min(files.filter(f => f.type.startsWith("video/")).length, HEAR_MAX_VIDEOS) * HEAR_USD * 100) / 100
+    : 0;
+
+  function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setError(null);
     const fd = new FormData(e.currentTarget);
+    // Listening to the clips is the one paid part of this step: price first.
+    if (hearPrice > 0) setConfirm(fd);
+    else void send(fd, false);
+  }
+
+  async function send(fd: FormData, hear: boolean) {
+    setConfirm(null);
+    setError(null);
     try {
       setBusy("Creating request...");
       const res = await fetch("/api/videos", {
@@ -77,7 +96,9 @@ export function VideoRequestSimple({
         if (!conf.ok) throw new Error(`${f.name}: confirm failed`);
       }
 
-      const sub = await fetch(`/api/videos/${id}/submit`, { method: "POST" });
+      const sub = await fetch(`/api/videos/${id}/submit`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hear }),
+      });
       if (!sub.ok) throw new Error((await sub.json()).error ?? `submit failed (${sub.status})`);
 
       setBusy("Done, opening your request...");
@@ -143,6 +164,12 @@ export function VideoRequestSimple({
           of the pace, don&apos;t use it&quot;. To show your app on a phone, add a short clip of the phone in a
           hand and a screenshot of the app.
         </p>
+        {hearPrice > 0 && (
+          <p className="mt-1 text-xs text-slate-600" data-testid="hear-price">
+            We listen to your {hearPrice > HEAR_USD ? "clips" : "clip"} so the script uses the words really said in
+            {hearPrice > HEAR_USD ? " them" : " it"}: ${hearPrice.toFixed(2)} of your production budget. You confirm it when you send the request.
+          </p>
+        )}
         {fileWarning && <div className="mt-1 text-xs text-amber-600">{fileWarning}</div>}
         {files.length > 0 && (
           <ul className="mt-1 space-y-0.5 text-xs text-slate-600">
@@ -163,9 +190,14 @@ export function VideoRequestSimple({
         {keyframeReview
           ? " Then you approve an image of every shot. Nothing is produced and no budget is used until you approve them."
           : " Nothing is produced and no budget is used until you approve it."}
+        {hearPrice > 0 && ` The one exception is listening to your ${hearPrice > HEAR_USD ? "clips" : "clip"} ($${hearPrice.toFixed(2)}), which you confirm when you send this.`}
       </div>
 
       {error && <div className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700">{error}</div>}
+      {confirm && (
+        <PayDialog title="Listen to your clips and write the script" price={hearPrice} spend={spend}
+          onCancel={() => setConfirm(null)} onConfirm={() => void send(confirm, true)} />
+      )}
 
       <button
         disabled={!!busy}

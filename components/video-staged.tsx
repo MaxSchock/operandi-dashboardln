@@ -224,7 +224,7 @@ function Script({ board, busy, call }: { board: Board; busy: boolean; call: Comm
               </div>
               {r.locked ? <p className="text-xs text-slate-500">Your own clip: {r.text}</p> : (
                 <div className="grid gap-2 sm:grid-cols-2">
-                  <label className="text-[11px] text-slate-500 sm:col-span-2">{r.kind === "silent" ? "What happens" : "Words"}{r.text_by === "agent" ? " (suggested, not yours)" : ""}
+                  <label className="text-[11px] text-slate-500 sm:col-span-2">{r.kind === "silent" ? "What happens" : "Words"}{r.text_by === "agent" ? " (suggested, not yours)" : r.text_by === "clip" ? " (heard in your clip)" : ""}
                     <textarea rows={2} value={r.text ?? ""} onChange={e => set(i, { text: e.target.value })} className={`${input} leading-5`} data-testid="shot-text" />
                   </label>
                   <label className="text-[11px] text-slate-500">Kind

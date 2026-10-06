@@ -14,7 +14,7 @@ export type StagedShot = {
   kind: "persona" | "pantalla" | "silent" | "ceo" | "clip";
   text: string;
   speaker: string;
-  text_by?: "client" | "agent";
+  text_by?: "client" | "agent" | "clip";
   audio: "line" | "narration" | "none";
   narration?: string | null;
   camera?: string;
@@ -68,6 +68,12 @@ export type Montage = {
   end_card?: { seconds?: number };
   timeline?: { n: number | "end"; start_s: number; length_s: number; join: Join | null; overlap_s: number }[];
 };
+
+/** Mirror of video-engine app/hear.py (STT_USD, MAX_VIDEOS): before the script exists there
+ * is no storyboard.costs to read. Each uploaded clip is listened to once so the script is
+ * written from what is really said in it. */
+export const HEAR_USD = 0.1;
+export const HEAR_MAX_VIDEOS = 3;
 
 export const STAGED_STATUSES = new Set([
   "script_pending", "script_ready", "script_approved", "images_approved", "shots_ready", "assembling",
