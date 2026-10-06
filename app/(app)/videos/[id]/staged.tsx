@@ -31,7 +31,7 @@ export async function StagedVideo({ r, isAdmin }: { r: Row; isAdmin: boolean }) 
     isAdmin ? svc.from("video_change_requests").select("id, shot_n, target, note, region, status, actor, created_at")
       .eq("request_id", r.id).order("created_at", { ascending: false }).limit(40) : Promise.resolve({ data: [] }),
     svc.rpc("video_month_spend", { p_client: r.client_slug }),
-    svc.from("video_assets").select("storage_key").eq("request_id", r.id).eq("kind", "reference_video"),
+    svc.from("video_assets").select("storage_key, kind, meta").eq("request_id", r.id).in("kind", ["reference_video", "reference_image"]),
   ]);
   const sign = (key: string) => presignGet(key, 3600);
   const images = await Promise.all(((kf.data ?? []) as Kf[]).filter(k => k.storage_key && k.status !== "failed").map(async k => ({
@@ -57,7 +57,11 @@ export async function StagedVideo({ r, isAdmin }: { r: Row; isAdmin: boolean }) 
   }));
   // The client's own clips, by file name: a shot made from one shows its stretch.
   const used = new Set((boardOf(r)?.shots ?? []).filter(s => s.kind === "clip").map(s => s.source_ref));
-  const clips = Object.fromEntries(await Promise.all(((up.data ?? []) as { storage_key: string }[])
+  const uploads = (up.data ?? []) as { storage_key: string; kind: string; meta: { use?: string } | null }[];
+  // The client's own pictures a drawn shot may show (mirror of video-engine plan.card_pictures).
+  const pictures = uploads.filter(a => a.kind === "reference_image" && a.meta?.use !== "person" && /\.(jpe?g|png|webp)$/i.test(a.storage_key))
+    .map(a => a.storage_key.split("/").pop()!);
+  const clips = Object.fromEntries(await Promise.all(uploads.filter(a => a.kind === "reference_video")
     .map(a => [a.storage_key.split("/").pop()!, a.storage_key] as const).filter(([name]) => used.has(name))
     .map(async ([name, key]) => [name, await sign(key)] as const)));
   const held = isHeld(r);
@@ -71,7 +75,7 @@ export async function StagedVideo({ r, isAdmin }: { r: Row; isAdmin: boolean }) 
     id: r.id, status: r.status, isAdmin, error: r.error, held,
     board: boardOf(r), montage: (r.montage ?? {}) as Montage,
     spend: spend ? { cap_usd: Number(spend.cap_usd), spent_usd: Number(spend.spent_usd), pending_usd: Number(spend.pending_usd) } : null,
-    images, takes, clips, jobs: (jb.data ?? []) as Job[], versions,
+    images, takes, clips, pictures, jobs: (jb.data ?? []) as Job[], versions,
     changes: (cr.data ?? []) as StagedData["changes"],
   };
   const brief = r.brief as { goal?: string; request?: string; language?: string };

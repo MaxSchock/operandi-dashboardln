@@ -11,7 +11,9 @@ import type { VideoActor, VideoRequest } from "@/lib/videos";
 
 export type StagedShot = {
   n: number;
-  kind: "persona" | "pantalla" | "silent" | "ceo" | "clip" | "text";
+  kind: "persona" | "pantalla" | "silent" | "ceo" | "clip" | "text" | "motion";
+  /** kind "motion": what the drawn shot shows besides its words, one of the client's own pictures or a short list. */
+  card?: { role: "screen" | "points"; image: string | null; points: string[] } | null;
   text: string;
   speaker: string;
   text_by?: "client" | "agent" | "clip";
@@ -67,6 +69,8 @@ export type Board = {
   costs: { image: number; music: number; captions: number; shots: Record<string, { film: number; lips: number; voice: number }> };
   needs: { n: number; role: "start" | "end" }[];
   advice?: Advice[];
+  /** A drawn video: screens the story would need and the client did not upload (nothing is invented in their place). */
+  missing?: string[];
   /** Per clip whose person is replaced: the people seen in it and which one is replaced
    * (index). With several people and no answer the script cannot be approved. */
   clip_people?: Record<string, { people: string[]; who: number | null; by?: string }>;
@@ -99,6 +103,10 @@ export type Job = {
   result: Record<string, unknown> | null;
 };
 
+/** How a vertical video is laid out. split: a filmed shot with words on screen shows the person
+ * below and those words as a graphics panel above, with captions that go word by word. */
+export const LAYOUTS = { full: "Full frame", split: "Person below, graphics above" } as const;
+export type Layout = keyof typeof LAYOUTS;
 export const SAFE_ZONES = { reels: "Instagram, TikTok, Shorts", linkedin: "LinkedIn", none: "No margin (edge of the video)" } as const;
 export type Safe = keyof typeof SAFE_ZONES;
 /** Mirror of video-engine retain.ON_SCREEN_MAX_CHARS. */
@@ -114,6 +122,7 @@ export type Montage = {
   /** Where captions and words on screen may sit on a vertical video: inside what the
    * network's own buttons leave free. Engine default: reels. */
   safe?: Safe;
+  layout?: Layout;
   timeline?: { n: number | "end"; start_s: number; length_s: number; join: Join | null; overlap_s: number }[];
 };
 
@@ -186,13 +195,18 @@ export function cleanRegion(raw: unknown): Region | null {
 
 const KINDS = new Set(["persona", "pantalla", "silent", "ceo"]);
 export const TEXT_MAX_CHARS = 160;
-/** A video made only of text on screen (kind "text"): no pictures, no voice, drawn by the engine for free. */
-export const isTextBoard = (b: Board) => b.shots.length > 0 && b.shots.every(s => s.kind === "text");
+/** A video the engine draws itself, for free: words on screen (kind "text"), some with one of the
+ * client's own pictures or a short list (kind "motion"). No voice, nothing filmed. */
+export const isDrawn = (kind: string | undefined) => kind === "text" || kind === "motion";
+export const isTextBoard = (b: Board) => b.shots.length > 0 && b.shots.every(s => isDrawn(s.kind));
+export const CARD_POINTS = 3;
 export type ShotEdit = {
   n: number | null; kind?: string; text?: string; speaker?: string; camera?: string; link?: string;
   lips_where?: string; narration?: string | null; to_phone?: boolean;
   /** Words on screen during the shot (not for a card of text, which is its own words). */
   on_screen?: string;
+  /** A drawn shot: the file name of the picture it shows, or its points (one per line). A picture wins. */
+  card_image?: string; card_points?: string;
   /** kind "clip" only: the stretch of the clip, in its seconds. */
   from_s?: number; to_s?: number;
   /** kind "clip", dubbed: the translated words (empty: translate again), or the dubbing taken off. */
@@ -258,6 +272,11 @@ export function applyScriptEdits(board: Board, edits: ShotEdit[], endText: strin
     s.kind = kind as StagedShot["kind"];
     if (kind === "text") {
       s.speaker = ""; s.link = "cut"; s.narration = null; s.line = null; s.to_phone = false;
+      // The engine checks the picture against the client's files and decides the kind.
+      const image = String(e.card_image ?? "").trim().slice(0, 200);
+      const points = String(e.card_points ?? "").split("\n").map(p => p.replace(/\s+/g, " ").trim().slice(0, 70)).filter(Boolean).slice(0, CARD_POINTS);
+      s.card = image ? { role: "screen", image, points: [] } : points.length ? { role: "points", image: null, points } : null;
+      s.kind = s.card ? "motion" : "text";
       shots.push(s); order.push(s.n); continue;
     }
     if (e.on_screen !== undefined) s.on_screen = onScreen(e.on_screen);
@@ -332,6 +351,7 @@ export function cleanMontage(old: Montage, raw: Record<string, unknown>): Montag
     out.captions = { on: c.on !== false, shots: kept };
   }
   if (typeof raw.safe === "string" && raw.safe in SAFE_ZONES) out.safe = raw.safe as Safe;
+  if (typeof raw.layout === "string" && raw.layout in LAYOUTS) out.layout = raw.layout as Layout;
   if (raw.end_card && typeof raw.end_card === "object") {
     const s = Number((raw.end_card as Record<string, unknown>).seconds);
     if (Number.isFinite(s)) out.end_card = { seconds: Math.min(Math.max(s, 1.5), 10) };

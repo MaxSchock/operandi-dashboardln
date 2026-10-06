@@ -4,6 +4,7 @@ import { resolveVideoActor, loadOwnedRequest, addEvent, heldFromClient, HELD_MES
 import {
   isStaged, boardOf, shotsInOrder, shotsOfPerson, enqueue, cleanRegion, applyScriptEdits, cleanMontage, whoMissing,
   type Board, type Montage, type ShotEdit, type Take,
+  isDrawn,
 } from "@/lib/video-staged";
 
 /**
@@ -99,7 +100,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const role = body.role === "end" ? "end" : "start";
     if (!s) return bad("shot not found", 404);
     // A shot from the client's clip has one picture at most: the person who goes into it.
-    if (s.kind === "text") return bad("this shot has no picture of its own");
+    if (isDrawn(s.kind)) return bad("this shot has no picture of its own");
     if (s.kind === "clip" && (role !== "start" || s.recipe !== "swap" || (s.person_from ?? s.n) !== s.n)) {
       return bad("this shot has no picture of its own");
     }
@@ -171,7 +172,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const onlyLips = body.what === "lips";
     const isClip = s.kind === "clip";
     if (isClip && onlyLips) return bad("a shot from your clip keeps its own lips");
-    const isText = s.kind === "text";
+    const isText = isDrawn(s.kind);
     if (isText && onlyLips) return bad("a text card has no lips");
     // Only the new voice and its lips: the person already put into the clip is kept.
     const onlyDub = body.what === "dub";
