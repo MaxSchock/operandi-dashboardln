@@ -38,6 +38,10 @@ export type StagedShot = {
   /** kind "clip": the stretch said in another language (a new voice, the lips moved to it).
    * `of` is the heard text the translation was made from. */
   dub?: { lang: string; text: string; of: string } | null;
+  /** Words shown on screen during the shot: a script of its own, read before anything is heard. */
+  on_screen?: string | null;
+  /** Second of the shot where the montage pushes in (a change of picture without filming). */
+  punch_in_s?: number | null;
 };
 
 export type Region = { x: number; y: number; w: number; h: number };
@@ -45,7 +49,12 @@ export type Region = { x: number; y: number; w: number; h: number };
 export type Proposal = {
   id: string; type: string; shot_n: number | null; text: string;
   status: "open" | "accepted" | "rejected"; applied: boolean;
+  /** type "hook": what the engine's checks found in this opening. */
+  notes?: string[];
 };
+
+/** What the engine's checks find in the table as it stands (app/retain.py). Shown, never enforced. */
+export type Advice = { type: string; shot_n: number | null; text: string };
 
 export type Board = {
   schema: number;
@@ -57,6 +66,7 @@ export type Board = {
   scenes?: Record<string, string>;
   costs: { image: number; music: number; captions: number; shots: Record<string, { film: number; lips: number; voice: number }> };
   needs: { n: number; role: "start" | "end" }[];
+  advice?: Advice[];
   /** Per clip whose person is replaced: the people seen in it and which one is replaced
    * (index). With several people and no answer the script cannot be approved. */
   clip_people?: Record<string, { people: string[]; who: number | null; by?: string }>;
@@ -89,6 +99,10 @@ export type Job = {
   result: Record<string, unknown> | null;
 };
 
+export const SAFE_ZONES = { reels: "Instagram, TikTok, Shorts", linkedin: "LinkedIn", none: "No margin (edge of the video)" } as const;
+export type Safe = keyof typeof SAFE_ZONES;
+/** Mirror of video-engine retain.ON_SCREEN_MAX_CHARS. */
+export const ON_SCREEN_MAX_CHARS = 60;
 export type Join = "cut" | "dissolve" | "fadewhite" | "fadeblack";
 export type CaptionBlock = { start: number; end: number; text: string };
 export type Montage = {
@@ -97,6 +111,9 @@ export type Montage = {
   music?: { on?: boolean; key?: string; under_voice?: number; end_card?: number; prompt?: string };
   captions?: { on?: boolean; shots?: Record<string, { audio_key?: string | null; source?: string; blocks?: CaptionBlock[] }> };
   end_card?: { seconds?: number };
+  /** Where captions and words on screen may sit on a vertical video: inside what the
+   * network's own buttons leave free. Engine default: reels. */
+  safe?: Safe;
   timeline?: { n: number | "end"; start_s: number; length_s: number; join: Join | null; overlap_s: number }[];
 };
 
@@ -174,6 +191,8 @@ export const isTextBoard = (b: Board) => b.shots.length > 0 && b.shots.every(s =
 export type ShotEdit = {
   n: number | null; kind?: string; text?: string; speaker?: string; camera?: string; link?: string;
   lips_where?: string; narration?: string | null; to_phone?: boolean;
+  /** Words on screen during the shot (not for a card of text, which is its own words). */
+  on_screen?: string;
   /** kind "clip" only: the stretch of the clip, in its seconds. */
   from_s?: number; to_s?: number;
   /** kind "clip", dubbed: the translated words (empty: translate again), or the dubbing taken off. */
@@ -190,6 +209,8 @@ export const LANG_NAMES: Record<string, string> = { de: "German", en: "English",
 
 /** Apply the client's own edits of the shot table. The engine lays the table
  * out again and recomputes lengths and prices (script_apply). */
+const onScreen = (v: unknown) => String(v ?? "").replace(/\s+/g, " ").trim().slice(0, ON_SCREEN_MAX_CHARS) || null;
+
 export function applyScriptEdits(board: Board, edits: ShotEdit[], endText: string | null | undefined,
                                  decisions: Record<string, string>,
                                  who: Record<string, unknown> = {}, lang?: string): { board: Board; error?: string } {
@@ -222,6 +243,7 @@ export function applyScriptEdits(board: Board, edits: ShotEdit[], endText: strin
         }
       }
       s.text = old.text; s.text_by = old.text_by;
+      if (e.on_screen !== undefined) s.on_screen = onScreen(e.on_screen);
       if (old.dub && e.dub_off) delete s.dub;
       else if (old.dub && e.dub_text !== undefined) {
         // Emptied: the engine translates it again when it applies the script.
@@ -238,6 +260,7 @@ export function applyScriptEdits(board: Board, edits: ShotEdit[], endText: strin
       s.speaker = ""; s.link = "cut"; s.narration = null; s.line = null; s.to_phone = false;
       shots.push(s); order.push(s.n); continue;
     }
+    if (e.on_screen !== undefined) s.on_screen = onScreen(e.on_screen);
     s.speaker = kind === "silent" ? "" : String(e.speaker ?? "").trim().slice(0, 60);
     const camera = String(e.camera ?? "").trim().slice(0, 500);
     if (camera !== String(s.camera ?? "")) { s.camera = camera; s.camera_edited = !!camera; }
@@ -308,6 +331,7 @@ export function cleanMontage(old: Montage, raw: Record<string, unknown>): Montag
     }
     out.captions = { on: c.on !== false, shots: kept };
   }
+  if (typeof raw.safe === "string" && raw.safe in SAFE_ZONES) out.safe = raw.safe as Safe;
   if (raw.end_card && typeof raw.end_card === "object") {
     const s = Number((raw.end_card as Record<string, unknown>).seconds);
     if (Number.isFinite(s)) out.end_card = { seconds: Math.min(Math.max(s, 1.5), 10) };

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Card, CardHeader, CardBody, Badge } from "@/components/ui";
 import { PayDialog, type MonthSpend } from "@/components/video-pay";
 import { ChangeMarker } from "@/components/video-change-marker";
-import { shotsInOrder, whoMissing, CLIP_MAX_S, LANG_NAMES, TEXT_MAX_CHARS, canDub, isTextBoard, type Board, type Job, type Join, type Montage, type Region, type ShotEdit, type StagedShot } from "@/lib/video-staged";
+import { shotsInOrder, whoMissing, CLIP_MAX_S, LANG_NAMES, TEXT_MAX_CHARS, canDub, isTextBoard, ON_SCREEN_MAX_CHARS, SAFE_ZONES, type Safe, type Board, type Job, type Join, type Montage, type Region, type ShotEdit, type StagedShot } from "@/lib/video-staged";
 
 type Image = { id: string; n: number; role: "start" | "end"; version: number; status: string; notes: string | null; carried: boolean; url: string };
 type TakeView = {
@@ -200,7 +200,7 @@ function Script({ board, clips, lang, busy, call }: { board: Board; clips: Recor
   const [rows, setRows] = useState<Row[]>(() => shotsInOrder(board).map(s => ({
     key: `s${s.n}`, n: s.n, kind: s.kind, text: s.text, speaker: s.speaker, camera: s.camera ?? "", link: s.link,
     lips_where: s.lips?.where ?? (s.kind === "pantalla" ? "phone" : "face"), narration: s.narration ?? "", to_phone: !!s.to_phone,
-    text_by: s.text_by, locked: s.kind === "clip", duration_s: s.duration_s,
+    text_by: s.text_by, locked: s.kind === "clip", duration_s: s.duration_s, on_screen: s.on_screen ?? "",
     ...(s.kind === "clip" ? { clip: s.source_ref, how: clipWords(s), from: String(s.source_start_s ?? 0),
       to: String(s.source_end_s ?? Math.round(((s.source_start_s ?? 0) + s.duration_s) * 100) / 100),
       ...(s.dub ? { dub_lang: s.dub.lang, dub_text: s.dub.text, dub_off: false } : { can_dub: canDub(s, lang), dub_on: false }) } : {}),
@@ -238,10 +238,18 @@ function Script({ board, clips, lang, busy, call }: { board: Board; clips: Recor
             <div className="text-xs font-medium text-slate-700">Suggestions</div>
             {open.map(p => (
               <div key={p.id} className="flex flex-wrap items-start justify-between gap-2 rounded-md border px-3 py-2 text-xs" data-testid={`proposal-${p.id}`}>
-                <span className="max-w-xl text-slate-700">{p.shot_n ? `Shot ${shotLabel(board, p.shot_n)}: ` : ""}{p.text}</span>
+                <span className="max-w-xl text-slate-700">{p.shot_n ? `Shot ${shotLabel(board, p.shot_n)}: ` : ""}{p.text}
+                  {(p.notes ?? []).map((t, k) => <span key={k} className="mt-1 block text-[11px] text-amber-700">{t}</span>)}</span>
                 <span className="flex gap-1">
                   {(["accepted", "rejected"] as const).map(v => (
-                    <button key={v} type="button" onClick={() => setDecisions(d => ({ ...d, [p.id]: d[p.id] === v ? "open" : v }))}
+                    <button key={v} type="button" data-testid={`proposal-${p.id}-${v}`} onClick={() => setDecisions(d => {
+                        const next = { ...d, [p.id]: d[p.id] === v ? "open" : v };
+                        // One opening at most: taking one gives the other two back.
+                        if (p.type === "hook" && next[p.id] === "accepted") {
+                          for (const o of open) if (o.type === "hook" && o.id !== p.id && next[o.id] === "accepted") next[o.id] = "open";
+                        }
+                        return next;
+                      })}
                       className={`${btn} border ${decisions[p.id] === v ? (v === "accepted" ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-600 bg-slate-600 text-white") : "text-slate-600"}`}>
                       {v === "accepted" ? "Accept" : "Reject"}
                     </button>
@@ -249,6 +257,12 @@ function Script({ board, clips, lang, busy, call }: { board: Board; clips: Recor
                 </span>
               </div>
             ))}
+          </div>
+        )}
+        {(board.advice?.length ?? 0) > 0 && (
+          <div className="space-y-1 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" data-testid="advice">
+            <div className="font-medium">What may lose viewers (checked on the table as saved; yours to decide)</div>
+            {board.advice!.map((a, k) => <div key={k}>{a.shot_n ? `Shot ${shotLabel(board, a.shot_n)}: ` : ""}{a.text}</div>)}
           </div>
         )}
         {several.map(([ref, cp]) => (
@@ -273,6 +287,12 @@ function Script({ board, clips, lang, busy, call }: { board: Board; clips: Recor
                   <button type="button" className={`${btn} border text-red-600`} disabled={rows.length === 1} onClick={() => setRows(x => x.filter((_, j) => j !== i))}>Remove</button>
                 </span>
               </div>
+              {r.kind !== "text" && (
+                <label className="mb-2 block text-[11px] text-slate-500">Words on screen{i === 0 ? " (the opening: shown from the first frame)" : " (optional)"}
+                  <input value={r.on_screen ?? ""} maxLength={ON_SCREEN_MAX_CHARS} onChange={e => set(i, { on_screen: e.target.value })}
+                    placeholder="6 words at most, not a copy of what is said" className={input} data-testid="shot-on-screen" />
+                </label>
+              )}
               {r.locked ? (
                 <div className="flex flex-wrap items-start gap-3 text-xs text-slate-600" data-testid="clip-row">
                   <ClipStretch src={r.clip ? clips[r.clip] : undefined} from={Number(r.from)} to={Number(r.to)} />
@@ -570,6 +590,7 @@ function MontagePanel({ data, board, busy, call, pay, jobOf }: Common & { data: 
   const [under, setUnder] = useState(String(m.music?.under_voice ?? 0.09));
   const [endLevel, setEndLevel] = useState(String(m.music?.end_card ?? 0.25));
   const [capsOn, setCapsOn] = useState(m.captions?.on !== false);
+  const [safe, setSafe] = useState<Safe>(m.safe ?? "reels");
   const [caps, setCaps] = useState(m.captions?.shots ?? {});
   const [endText, setEndText] = useState(board.end_card?.text ?? "");
   const [endSecs, setEndSecs] = useState(m.end_card?.seconds ? String(m.end_card.seconds) : "");
@@ -581,7 +602,7 @@ function MontagePanel({ data, board, busy, call, pay, jobOf }: Common & { data: 
     montage: {
       joins, music: { on: musicOn, under_voice: Number(under), end_card: Number(endLevel) },
       trims: Object.fromEntries(Object.entries(trims).filter(([, v]) => v !== "").map(([k, v]) => [k, Math.min(Number(v), maxTrim(Number(k)))])),
-      captions: { on: capsOn, shots: caps }, ...(endSecs ? { end_card: { seconds: Number(endSecs) } } : {}),
+      safe, captions: { on: capsOn, shots: caps }, ...(endSecs ? { end_card: { seconds: Number(endSecs) } } : {}),
     },
   });
   const timed = shots.filter(s => s.audio !== "none").every(s => m.captions?.shots?.[String(s.n)]?.source);
@@ -653,6 +674,11 @@ function MontagePanel({ data, board, busy, call, pay, jobOf }: Common & { data: 
           </div>
           <div className="space-y-2 text-xs text-slate-600">
             <label className="flex items-center gap-2 font-medium text-slate-700"><input type="checkbox" checked={capsOn} onChange={e => setCapsOn(e.target.checked)} /> Captions</label>
+            <label className="block text-[11px] text-slate-500">Keep captions clear of the buttons of
+              <select value={safe} onChange={e => setSafe(e.target.value as Safe)} className={input} data-testid="safe-zone">
+                {Object.entries(SAFE_ZONES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </label>
             <p className="text-[11px] text-slate-400">{timed ? "Timed to the voices. Change any wording below." : "Until they are timed to the voices, captions follow the script text spread evenly over each shot."}</p>
             {jobOf("captions_stt") ? <p className="text-[11px] text-amber-700">Being timed...</p>
               : !timed && <button type="button" disabled={busy} className={`${btn} border text-slate-700`} data-testid="captions-time"
