@@ -11,7 +11,7 @@ import type { VideoActor, VideoRequest } from "@/lib/videos";
 
 export type StagedShot = {
   n: number;
-  kind: "persona" | "pantalla" | "silent" | "ceo" | "clip";
+  kind: "persona" | "pantalla" | "silent" | "ceo" | "clip" | "text";
   text: string;
   speaker: string;
   text_by?: "client" | "agent" | "clip";
@@ -166,6 +166,9 @@ export function cleanRegion(raw: unknown): Region | null {
 }
 
 const KINDS = new Set(["persona", "pantalla", "silent", "ceo"]);
+export const TEXT_MAX_CHARS = 160;
+/** A video made only of text on screen (kind "text"): no pictures, no voice, drawn by the engine for free. */
+export const isTextBoard = (b: Board) => b.shots.length > 0 && b.shots.every(s => s.kind === "text");
 export type ShotEdit = {
   n: number | null; kind?: string; text?: string; speaker?: string; camera?: string; link?: string;
   lips_where?: string; narration?: string | null; to_phone?: boolean;
@@ -188,10 +191,12 @@ export function applyScriptEdits(board: Board, edits: ShotEdit[], endText: strin
   let next = Math.max(0, ...board.shots.map(s => s.n)) + 1;
   const shots: (StagedShot & Record<string, unknown>)[] = [];
   const order: number[] = [];
+  // A video of text on screen holds only cards of text: every shot of it is one.
+  const textBoard = isTextBoard(board);
   for (const e of edits) {
-    const text = String(e.text ?? "").trim().slice(0, 400);
+    const text = String(e.text ?? "").trim().slice(0, textBoard ? TEXT_MAX_CHARS : 400);
     if (!text) return { board, error: "every shot needs its words (or what happens, for a shot without words)" };
-    const kind = KINDS.has(String(e.kind)) ? String(e.kind) : "persona";
+    const kind = textBoard ? "text" : KINDS.has(String(e.kind)) ? String(e.kind) : "persona";
     const old = e.n !== null ? by.get(e.n) : undefined;
     const s = (old ? { ...old } : { n: next++, text_by: "client", link_edited: true }) as StagedShot & Record<string, unknown>;
     if (order.includes(s.n)) continue;
@@ -218,6 +223,10 @@ export function applyScriptEdits(board: Board, edits: ShotEdit[], endText: strin
     }
     s.text = text;
     s.kind = kind as StagedShot["kind"];
+    if (kind === "text") {
+      s.speaker = ""; s.link = "cut"; s.narration = null; s.line = null; s.to_phone = false;
+      shots.push(s); order.push(s.n); continue;
+    }
     s.speaker = kind === "silent" ? "" : String(e.speaker ?? "").trim().slice(0, 60);
     const camera = String(e.camera ?? "").trim().slice(0, 500);
     if (camera !== String(s.camera ?? "")) { s.camera = camera; s.camera_edited = !!camera; }

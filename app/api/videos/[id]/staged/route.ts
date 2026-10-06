@@ -98,6 +98,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const role = body.role === "end" ? "end" : "start";
     if (!s) return bad("shot not found", 404);
     // A shot from the client's clip has one picture at most: the person who goes into it.
+    if (s.kind === "text") return bad("this shot has no picture of its own");
     if (s.kind === "clip" && (role !== "start" || s.recipe !== "swap" || (s.person_from ?? s.n) !== s.n)) {
       return bad("this shot has no picture of its own");
     }
@@ -169,6 +170,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const onlyLips = body.what === "lips";
     const isClip = s.kind === "clip";
     if (isClip && onlyLips) return bad("a shot from your clip keeps its own lips");
+    const isText = s.kind === "text";
+    if (isText && onlyLips) return bad("a text card has no lips");
     // Only the new voice and its lips: the person already put into the clip is kept.
     const onlyDub = body.what === "dub";
     if (onlyDub && !(isClip && s.recipe === "swap" && s.dub?.text)) return bad("this shot has no dubbing to make again");
@@ -181,7 +184,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const { count } = await svc.from("video_shot_takes").select("id", { count: "exact", head: true })
       .eq("request_id", request.id).eq("shot_n", s.n);
     // A stretch of the client's clip is made again as it is: there is nothing to describe.
-    if ((count ?? 0) > 0 && !onlyLips && !note && !isClip) return bad("say what should change in this shot");
+    if ((count ?? 0) > 0 && !onlyLips && !note && !isClip && !isText) return bad("say what should change in this shot");
     let change: string | null = null;
     if (note || region) {
       const cr = await svc.from("video_change_requests").insert({
