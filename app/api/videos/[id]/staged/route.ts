@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { serviceRoleClient } from "@/lib/supabase/server";
 import { resolveVideoActor, loadOwnedRequest, addEvent, heldFromClient, HELD_MESSAGE } from "@/lib/videos";
 import {
-  isStaged, boardOf, shotsInOrder, enqueue, cleanRegion, applyScriptEdits, cleanMontage,
+  isStaged, boardOf, shotsInOrder, shotsOfPerson, enqueue, cleanRegion, applyScriptEdits, cleanMontage,
   type Board, type Montage, type ShotEdit, type Take,
 } from "@/lib/video-staged";
 
@@ -68,6 +68,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const s = shot(body.shot);
     const role = body.role === "end" ? "end" : "start";
     if (!s) return bad("shot not found", 404);
+    // A shot from the client's clip has one picture at most: the person who goes into it.
+    if (s.kind === "clip" && (role !== "start" || s.recipe !== "swap" || (s.person_from ?? s.n) !== s.n)) {
+      return bad("this shot has no picture of its own");
+    }
     if (!paid(board.costs.image)) return bad(STALE, 409);
     const note = String(body.note ?? "").trim().slice(0, 600);
     const region = cleanRegion(body.region);
@@ -97,7 +101,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     if (!kf || !kf.storage_key || kf.status === "failed") return bad("picture not found", 404);
     if (kf.status === "approved") return NextResponse.json({ ok: true });
     // A shot being filmed right now is filmed from the picture approved until now.
-    if (await working("shot_film", kf.shot_n)) return bad("This shot is being filmed right now. Change its picture when the take is done.", 409);
+    const made = shotsOfPerson(board, kf.shot_n);
+    for (const n of made) {
+      if (await working("shot_film", n)) return bad("A shot is being filmed from this picture right now. Change it when the take is done.", 409);
+    }
     const now = new Date().toISOString();
     const off = await svc.from("video_keyframes").update({ status: "rejected", updated_at: now })
       .eq("request_id", request.id).eq("shot_n", kf.shot_n).eq("role", kf.role).eq("status", "approved").neq("id", kf.id);
@@ -105,7 +112,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     if (on.error) return bad(on.error.message, 500);
     // A take filmed from another picture no longer shows what was approved.
     const stale = await svc.from("video_shot_takes").update({ status: "stale", updated_at: now })
-      .eq("request_id", request.id).eq("shot_n", kf.shot_n).in("status", ["proposed", "approved"]).select("id");
+      .eq("request_id", request.id).in("shot_n", made).in("status", ["proposed", "approved"]).select("id");
     if (stale.data?.length && ["shots_ready", "delivered"].includes(request.status)) {
       await svc.from("video_requests").update({ status: "images_approved", updated_at: now }).eq("id", request.id).eq("status", request.status);
     }
@@ -131,6 +138,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     if (!s) return bad("shot not found", 404);
     const c = board.costs.shots[String(s.n)] ?? { film: 0, lips: 0, voice: 0 };
     const onlyLips = body.what === "lips";
+    const isClip = s.kind === "clip";
+    if (isClip && onlyLips) return bad("a shot from your clip keeps its own lips");
     const price = Math.round((onlyLips ? c.lips : c.film + c.lips + c.voice) * 100) / 100;
     if (!paid(price)) return bad(STALE, 409);
     const note = String(body.note ?? "").trim().slice(0, 600);
@@ -139,7 +148,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     if (onlyLips && !region) return bad("mark the face that speaks");
     const { count } = await svc.from("video_shot_takes").select("id", { count: "exact", head: true })
       .eq("request_id", request.id).eq("shot_n", s.n);
-    if ((count ?? 0) > 0 && !onlyLips && !note) return bad("say what should change in this shot");
+    // A stretch of the client's clip is made again as it is: there is nothing to describe.
+    if ((count ?? 0) > 0 && !onlyLips && !note && !isClip) return bad("say what should change in this shot");
     let change: string | null = null;
     if (note || region) {
       const cr = await svc.from("video_change_requests").insert({

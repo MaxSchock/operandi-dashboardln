@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Card, CardHeader, CardBody, Badge } from "@/components/ui";
 import { PayDialog, type MonthSpend } from "@/components/video-pay";
 import { ChangeMarker } from "@/components/video-change-marker";
-import { shotsInOrder, type Board, type Job, type Join, type Montage, type Region, type ShotEdit, type StagedShot } from "@/lib/video-staged";
+import { shotsInOrder, CLIP_MAX_S, type Board, type Job, type Join, type Montage, type Region, type ShotEdit, type StagedShot } from "@/lib/video-staged";
 
 type Image = { id: string; n: number; role: "start" | "end"; version: number; status: string; notes: string | null; carried: boolean; url: string };
 type TakeView = {
@@ -15,7 +15,7 @@ type TakeView = {
 export type StagedData = {
   id: string; status: string; isAdmin: boolean; error: string | null; held: boolean;
   board: Board | null; montage: Montage; spend: MonthSpend | null;
-  images: Image[]; takes: TakeView[]; jobs: Job[]; versions: { version: number; url: string }[];
+  images: Image[]; takes: TakeView[]; clips: Record<string, string>; jobs: Job[]; versions: { version: number; url: string }[];
   changes: { id: string; shot_n: number | null; target: string; note: string | null; region: Region | null; status: string; actor: string; created_at: string }[];
 };
 
@@ -61,7 +61,10 @@ export function VideoStaged({ data }: { data: StagedData }) {
       setError("No connection. Try again in a moment."); return false;
     } finally { setBusy(false); }
   }
-  const pay = (title: string, price: number, body: Record<string, unknown>) => setAsk({ title, price, body });
+  // A step that costs nothing (a stretch of the client's own clip, cut as it is) starts at once.
+  const pay = (title: string, price: number, body: Record<string, unknown>) => {
+    if (price > 0) setAsk({ title, price, body }); else void call({ ...body, confirmed_usd: 0 });
+  };
   const jobOf = (kind: string, n?: number, role?: string) =>
     active.find(j => j.kind === kind && (n === undefined || j.shot_n === n) && (role === undefined || j.role === role));
   const failed = data.jobs.filter(j => j.status === "failed").slice(0, 3);
@@ -88,7 +91,7 @@ export function VideoStaged({ data }: { data: StagedData }) {
       )}
       {!board && <Card><CardBody><p className="text-sm text-slate-600">The shots are being written. This takes about a minute.</p></CardBody></Card>}
 
-      {board && status === "script_ready" && <Script key={JSON.stringify(board.shots) + JSON.stringify(board.proposals)} board={board} busy={busy || !!jobOf("script_apply")} call={call} />}
+      {board && status === "script_ready" && <Script key={JSON.stringify(board.shots) + JSON.stringify(board.proposals)} board={board} clips={data.clips} busy={busy || !!jobOf("script_apply")} call={call} />}
       {board && stage > 2 && <ScriptSummary board={board} />}
       {board && stage >= 3 && <Images data={data} board={board} busy={busy} call={call} pay={pay} setMark={setMark} jobOf={jobOf} />}
       {board && stage >= 4 && <Shots data={data} board={board} busy={busy} call={call} pay={pay} setMark={setMark} jobOf={jobOf} />}
@@ -162,13 +165,28 @@ function MarkDialog({ mark, spend, busy, onConfirm, onCancel }: {
 
 /* ---------- stage 0: the shot table ---------- */
 
-type Row = ShotEdit & { key: string; text_by?: string; locked?: boolean; duration_s?: number };
+type Row = ShotEdit & { key: string; text_by?: string; locked?: boolean; duration_s?: number; clip?: string | null; how?: string | null; from?: string; to?: string };
 
-function Script({ board, busy, call }: { board: Board; busy: boolean; call: Common["call"] }) {
+/** A stretch of the client's clip: the player shows that part only. */
+function ClipStretch({ src, from, to }: { src?: string; from: number; to: number }) {
+  if (!src || !(to > from)) return null;
+  return <video key={`${from}-${to}`} src={`${src}#t=${from.toFixed(2)},${to.toFixed(2)}`} controls playsInline preload="metadata"
+    className="w-28 rounded-md border bg-black" data-testid="clip-stretch" />;
+}
+
+function clipWords(s: StagedShot): string {
+  return s.recipe === "swap"
+    ? `with ${s.person_ref ? `the person of ${s.person_ref}` : s.character || "another person"} in the place of the person in it`
+    : "as it is";
+}
+
+function Script({ board, clips, busy, call }: { board: Board; clips: Record<string, string>; busy: boolean; call: Common["call"] }) {
   const [rows, setRows] = useState<Row[]>(() => shotsInOrder(board).map(s => ({
     key: `s${s.n}`, n: s.n, kind: s.kind, text: s.text, speaker: s.speaker, camera: s.camera ?? "", link: s.link,
     lips_where: s.lips?.where ?? (s.kind === "pantalla" ? "phone" : "face"), narration: s.narration ?? "", to_phone: !!s.to_phone,
     text_by: s.text_by, locked: s.kind === "clip", duration_s: s.duration_s,
+    ...(s.kind === "clip" ? { clip: s.source_ref, how: clipWords(s), from: String(s.source_start_s ?? 0),
+      to: String(s.source_end_s ?? Math.round(((s.source_start_s ?? 0) + s.duration_s) * 100) / 100) } : {}),
   })));
   const [decisions, setDecisions] = useState<Record<string, string>>(() => Object.fromEntries(board.proposals.map(p => [p.id, p.status])));
   const [endText, setEndText] = useState(board.end_card?.text ?? "");
@@ -184,7 +202,8 @@ function Script({ board, busy, call }: { board: Board; busy: boolean; call: Comm
   }, [board]);
   const send = (approve: boolean) => call({
     action: "script_save", approve, end_text: endText, proposals: decisions,
-    shots: rows.map(({ key: _k, text_by: _t, locked: _l, duration_s: _d, ...e }) => e),
+    shots: rows.map(({ key: _k, text_by: _t, locked: _l, duration_s: _d, clip: _c, how: _h, from, to, ...e }) =>
+      _l ? { ...e, from_s: Number(from), to_s: Number(to) } : e),
   });
   const open = board.proposals.filter(p => !p.applied);
 
@@ -222,7 +241,22 @@ function Script({ board, busy, call }: { board: Board; busy: boolean; call: Comm
                   <button type="button" className={`${btn} border text-red-600`} disabled={rows.length === 1} onClick={() => setRows(x => x.filter((_, j) => j !== i))}>Remove</button>
                 </span>
               </div>
-              {r.locked ? <p className="text-xs text-slate-500">Your own clip: {r.text}</p> : (
+              {r.locked ? (
+                <div className="flex flex-wrap items-start gap-3 text-xs text-slate-600" data-testid="clip-row">
+                  <ClipStretch src={r.clip ? clips[r.clip] : undefined} from={Number(r.from)} to={Number(r.to)} />
+                  <div className="max-w-md space-y-2">
+                    <p>Your clip {r.clip}, {r.how}. It keeps its own sound.</p>
+                    <p className="text-slate-500">{r.text_by === "clip" ? "Said in this part: " : ""}{r.text}</p>
+                    <div className="flex flex-wrap items-end gap-2">
+                      <label className="text-[11px] text-slate-500">From second
+                        <input type="number" min={0} step={0.1} value={r.from ?? ""} onChange={e => set(i, { from: e.target.value })} className={`${input} w-20`} data-testid="clip-from" /></label>
+                      <label className="text-[11px] text-slate-500">to second
+                        <input type="number" min={0} step={0.1} value={r.to ?? ""} onChange={e => set(i, { to: e.target.value })} className={`${input} w-20`} data-testid="clip-to" /></label>
+                      <span className="pb-1 text-[11px] text-slate-400">{Number(r.to) - Number(r.from) > CLIP_MAX_S ? `One shot holds ${CLIP_MAX_S} seconds at most.` : "Save to read the words of the new part."}</span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
                 <div className="grid gap-2 sm:grid-cols-2">
                   <label className="text-[11px] text-slate-500 sm:col-span-2">{r.kind === "silent" ? "What happens" : "Words"}{r.text_by === "agent" ? " (suggested, not yours)" : r.text_by === "clip" ? " (heard in your clip)" : ""}
                     <textarea rows={2} value={r.text ?? ""} onChange={e => set(i, { text: e.target.value })} className={`${input} leading-5`} data-testid="shot-text" />
@@ -288,7 +322,7 @@ function ScriptSummary({ board }: { board: Board }) {
 
 function Images({ data, board, busy, call, pay, setMark, jobOf }: Common & { data: StagedData; board: Board; setMark: (m: Mark) => void }) {
   const price = board.costs.image;
-  const shots = shotsInOrder(board).filter(s => s.kind !== "clip");
+  const shots = shotsInOrder(board);
   const need = new Set((board.needs ?? []).map(x => `${x.n}:${x.role}`));
   const missing = (board.needs ?? []).filter(x => !data.images.some(i => i.n === x.n && i.role === x.role && i.status === "approved"));
   return (
@@ -301,14 +335,24 @@ function Images({ data, board, busy, call, pay, setMark, jobOf }: Common & { dat
           return (
             <div key={s.n} className="space-y-2 border-b pb-4 last:border-0" data-testid={`images-shot-${s.n}`}>
               <div className="text-xs font-medium text-navy">Shot {shotLabel(board, s.n)} <span className="font-normal text-slate-500">{s.speaker ? `${s.speaker}: ` : ""}{s.text}</span></div>
-              {roles.length === 0 && <p className="text-[11px] text-slate-400">Continues from the last frame of the shot before: no picture of its own.</p>}
+              {s.kind === "clip" && (
+                <div className="flex flex-wrap items-start gap-3">
+                  <ClipStretch src={s.source_ref ? data.clips[s.source_ref] : undefined} from={s.source_start_s ?? 0} to={s.source_end_s ?? (s.source_start_s ?? 0) + s.duration_s} />
+                  <p className="max-w-sm text-[11px] text-slate-400">
+                    {s.recipe !== "swap" ? "This part of your clip goes into the video as it is: there is nothing to draw."
+                      : roles.length ? "This part of your clip, with the person below in the place of the person in it."
+                      : `The same person as in shot ${shotLabel(board, s.person_from ?? s.n)}: that picture is used here too.`}
+                  </p>
+                </div>
+              )}
+              {s.kind !== "clip" && roles.length === 0 && <p className="text-[11px] text-slate-400">Continues from the last frame of the shot before: no picture of its own.</p>}
               {roles.map(role => {
                 const list = data.images.filter(i => i.n === s.n && i.role === role);
                 const job = jobOf("image_draw", s.n, role);
                 const current = list.find(i => i.status === "approved") ?? list[0];
                 return (
                   <div key={role} className="space-y-1">
-                    <div className="text-[11px] uppercase tracking-wide text-slate-400">{role === "start" ? "First picture" : "Last picture"}</div>
+                    <div className="text-[11px] uppercase tracking-wide text-slate-400">{s.kind === "clip" ? "The person who goes into your clip" : role === "start" ? "First picture" : "Last picture"}</div>
                     <div className="flex flex-wrap gap-3">
                       {list.map(i => (
                         <figure key={i.id} className="w-32 space-y-1 text-[11px]" data-testid={`image-${s.n}-${role}-v${i.version}`}>
@@ -323,14 +367,14 @@ function Images({ data, board, busy, call, pay, setMark, jobOf }: Common & { dat
                     </div>
                     {job ? <p className="text-[11px] text-amber-700">Being drawn...</p>
                       : !current ? <button type="button" disabled={busy} className={`${btn} bg-navy text-white`} data-testid="image-draw"
-                          onClick={() => pay(`Draw the ${role === "start" ? "first" : "last"} picture of shot ${shotLabel(board, s.n)}`, price, { action: "draw", shot: s.n, role })}>Draw this picture ({usd(price)})</button>
+                          onClick={() => pay(s.kind === "clip" ? `Draw the person for shot ${shotLabel(board, s.n)}` : `Draw the ${role === "start" ? "first" : "last"} picture of shot ${shotLabel(board, s.n)}`, price, { action: "draw", shot: s.n, role })}>Draw this picture ({usd(price)})</button>
                       : !current.carried && <button type="button" disabled={busy} className={`${btn} border text-slate-700`} data-testid="image-change"
                           onClick={() => setMark({ title: `Change the ${role === "start" ? "first" : "last"} picture of shot ${shotLabel(board, s.n)} (from v${current.version})`, src: current.url, price, needNote: true,
                             body: { action: "draw", shot: s.n, role, base_version: current.version } })}>Change something ({usd(price)})</button>}
                   </div>
                 );
               })}
-              {hasStart && !roles.includes("end") && !jobOf("image_draw", s.n, "end") && (
+              {s.kind !== "clip" && hasStart && !roles.includes("end") && !jobOf("image_draw", s.n, "end") && (
                 <button type="button" disabled={busy} className="text-[11px] text-slate-500 underline"
                   onClick={() => pay(`Draw a last picture for shot ${shotLabel(board, s.n)}`, price, { action: "draw", shot: s.n, role: "end" })}>
                   Add a last picture, so the shot ends exactly there ({usd(price)})
@@ -354,7 +398,7 @@ function Images({ data, board, busy, call, pay, setMark, jobOf }: Common & { dat
 /* ---------- stage 2: shots ---------- */
 
 function Shots({ data, board, busy, call, pay, setMark, jobOf }: Common & { data: StagedData; board: Board; setMark: (m: Mark) => void }) {
-  const shots = shotsInOrder(board).filter(s => s.kind !== "clip");
+  const shots = shotsInOrder(board);
   const priceOf = (n: number) => { const c = board.costs.shots[String(n)] ?? { film: 0, lips: 0, voice: 0 }; return Math.round((c.film + c.lips + c.voice) * 100) / 100; };
   const todo = shots.filter(s => !data.takes.some(t => t.n === s.n && t.status !== "stale") && !jobOf("shot_film", s.n));
   const [filmingAll, setFilmingAll] = useState(false);
@@ -390,6 +434,7 @@ function ShotCard({ s, data, board, busy, call, pay, setMark, jobOf, price }: Co
     return { frame_s: Math.round(t * 100) / 100, src: frames[Math.min(frames.length - 1, Math.floor(t * 2))] };
   };
   const label = shotLabel(board, s.n);
+  const isClip = s.kind === "clip", swap = isClip && s.recipe === "swap";
   return (
     <div className="space-y-2 border-b pb-4 last:border-0" data-testid={`shot-${s.n}`}>
       <div className="text-xs font-medium text-navy">Shot {label} <span className="font-normal text-slate-500">{s.speaker ? `${s.speaker}: ` : ""}{s.text}</span></div>
@@ -421,7 +466,10 @@ function ShotCard({ s, data, board, busy, call, pay, setMark, jobOf, price }: Co
               <div className="flex flex-wrap gap-2">
                 {take.status !== "approved" && <button type="button" disabled={busy} className={`${btn} bg-emerald-600 text-white`} data-testid="take-pick"
                   onClick={() => call({ action: "take_pick", take: take.id })}>Approve this take</button>}
-                {take.frames.length > 0 && !job && <button type="button" disabled={busy} className={`${btn} border text-slate-700`} data-testid="take-refilm"
+                {swap && !job && <button type="button" disabled={busy} className={`${btn} border text-slate-700`} data-testid="take-reswap"
+                  onClick={() => pay(`Put the person into shot ${label} again`, price, { action: "film", shot: s.n })}>
+                  Make it again ({usd(price)})</button>}
+                {!isClip && take.frames.length > 0 && !job && <button type="button" disabled={busy} className={`${btn} border text-slate-700`} data-testid="take-refilm"
                   onClick={() => { const f = frameAt(); setMark({ title: `Film shot ${label} again (paused at ${f.frame_s.toFixed(1)}s)`, src: f.src, price, needNote: true, body: { action: "film", shot: s.n, frame_s: f.frame_s } }); }}>
                   Film again with a note ({usd(price)})</button>}
               </div>
@@ -429,11 +477,11 @@ function ShotCard({ s, data, board, busy, call, pay, setMark, jobOf, price }: Co
           </div>
         </div>
       )}
-      {job ? <p className="text-[11px] text-amber-700">Being filmed. A shot takes 3 to 15 minutes.</p>
+      {job ? <p className="text-[11px] text-amber-700">{swap ? "The person is being put into your clip. This takes 10 to 20 minutes." : isClip ? "Being cut from your clip." : "Being filmed. A shot takes 3 to 15 minutes."}</p>
         : (!take || list.every(t => t.status === "stale")) && (
           <button type="button" disabled={busy} className={`${btn} bg-navy text-white`} data-testid="shot-film"
-            onClick={() => pay(`Film shot ${label}`, price, { action: "film", shot: s.n, ...(list.length ? { note: "Filmed again from the picture approved now." } : {}) })}>
-            Film this shot ({usd(price)})</button>
+            onClick={() => pay(swap ? `Put the person into shot ${label}` : `Film shot ${label}`, price, { action: "film", shot: s.n, ...(list.length ? { note: "Filmed again from the picture approved now." } : {}) })}>
+            {swap ? `Put the person into this part of your clip (${usd(price)})` : isClip ? "Cut this part from your clip (free)" : `Film this shot (${usd(price)})`}</button>
         )}
     </div>
   );

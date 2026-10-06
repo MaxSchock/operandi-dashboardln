@@ -24,6 +24,15 @@ export type StagedShot = {
   recipe?: string | null;
   duration_s: number;
   to_phone?: boolean;
+  /** kind "clip": a stretch of the client's own clip, shown as it is (recipe "cut") or with
+   * its person replaced (recipe "swap") by a listed character or the person of a photo. */
+  source_ref?: string | null;
+  source_start_s?: number | null;
+  source_end_s?: number | null;
+  character?: string | null;
+  person_ref?: string | null;
+  /** The shot that holds the picture of the new person (one picture for all their shots). */
+  person_from?: number | null;
 };
 
 export type Region = { x: number; y: number; w: number; h: number };
@@ -74,6 +83,15 @@ export type Montage = {
  * written from what is really said in it. */
 export const HEAR_USD = 0.1;
 export const HEAR_MAX_VIDEOS = 3;
+/** Mirror of video-engine dialogue.MAX_SWAP_S: one shot holds this much of a clip at most. */
+export const CLIP_MAX_S = 15;
+
+/** The clip shots whose takes are made from the picture of the person kept on shot n. */
+export function shotsOfPerson(b: Board, n: number): number[] {
+  const s = b.shots.find(x => x.n === n);
+  if (s?.kind !== "clip") return [n];
+  return [n, ...b.shots.filter(x => x.n !== n && x.kind === "clip" && x.recipe === "swap" && x.person_from === n).map(x => x.n)];
+}
 
 export const STAGED_STATUSES = new Set([
   "script_pending", "script_ready", "script_approved", "images_approved", "shots_ready", "assembling",
@@ -131,6 +149,8 @@ const KINDS = new Set(["persona", "pantalla", "silent", "ceo"]);
 export type ShotEdit = {
   n: number | null; kind?: string; text?: string; speaker?: string; camera?: string; link?: string;
   lips_where?: string; narration?: string | null; to_phone?: boolean;
+  /** kind "clip" only: the stretch of the clip, in its seconds. */
+  from_s?: number; to_s?: number;
 };
 
 /** Apply the client's own edits of the shot table. The engine lays the table
@@ -151,7 +171,21 @@ export function applyScriptEdits(board: Board, edits: ShotEdit[], endText: strin
     const s = (old ? { ...old } : { n: next++, text_by: "client", link_edited: true }) as StagedShot & Record<string, unknown>;
     if (order.includes(s.n)) continue;
     if (old && old.text !== text) s.text_by = "client";
-    if (old && old.kind === "clip") { shots.push(s); order.push(s.n); continue; }
+    if (old && old.kind === "clip") {
+      if (e.from_s !== undefined || e.to_s !== undefined) {
+        const a = Math.round(Number(e.from_s) * 100) / 100, b = Math.round(Number(e.to_s) * 100) / 100;
+        if (!Number.isFinite(a) || !Number.isFinite(b) || a < 0 || b - a < 0.5) {
+          return { board, error: "a shot from your clip needs a start and an end at least half a second apart" };
+        }
+        if (b - a > CLIP_MAX_S + 0.001) return { board, error: `one shot holds at most ${CLIP_MAX_S} seconds of your clip` };
+        if (a !== Number(old.source_start_s ?? 0) || b !== Number(old.source_end_s ?? -1)) {
+          // The engine reads the words said in the new stretch when it applies the script.
+          s.source_start_s = a; s.source_end_s = b; s.duration_s = Math.round((b - a) * 100) / 100; s.stretch_edited = true;
+        }
+      }
+      s.text = old.text; s.text_by = old.text_by;
+      shots.push(s); order.push(s.n); continue;
+    }
     s.text = text;
     s.kind = kind as StagedShot["kind"];
     s.speaker = kind === "silent" ? "" : String(e.speaker ?? "").trim().slice(0, 60);
