@@ -54,7 +54,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const rows = Array.isArray(body.shots) ? (body.shots as unknown[]).filter(x => x && typeof x === "object") as ShotEdit[] : [];
     const decisions = body.proposals && typeof body.proposals === "object" ? body.proposals as Record<string, string> : {};
     const who = body.clip_who && typeof body.clip_who === "object" ? body.clip_who as Record<string, unknown> : {};
-    const edited = applyScriptEdits(board, rows, typeof body.end_text === "string" ? body.end_text : undefined, decisions, who);
+    const edited = applyScriptEdits(board, rows, typeof body.end_text === "string" ? body.end_text : undefined, decisions, who,
+      String((request.brief as { language?: string } | null)?.language ?? "").toLowerCase() || undefined);
     if (edited.error) return bad(edited.error);
     if (body.approve === true && whoMissing(edited.board).length) {
       return bad("Several people appear in your clip: choose which of them is replaced, then approve.");

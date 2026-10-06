@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Card, CardHeader, CardBody, Badge } from "@/components/ui";
 import { PayDialog, type MonthSpend } from "@/components/video-pay";
 import { ChangeMarker } from "@/components/video-change-marker";
-import { shotsInOrder, whoMissing, CLIP_MAX_S, LANG_NAMES, TEXT_MAX_CHARS, isTextBoard, type Board, type Job, type Join, type Montage, type Region, type ShotEdit, type StagedShot } from "@/lib/video-staged";
+import { shotsInOrder, whoMissing, CLIP_MAX_S, LANG_NAMES, TEXT_MAX_CHARS, canDub, isTextBoard, type Board, type Job, type Join, type Montage, type Region, type ShotEdit, type StagedShot } from "@/lib/video-staged";
 
 type Image = { id: string; n: number; role: "start" | "end"; version: number; status: string; notes: string | null; carried: boolean; url: string };
 type TakeView = {
@@ -14,6 +14,8 @@ type TakeView = {
 };
 export type StagedData = {
   id: string; status: string; isAdmin: boolean; error: string | null; held: boolean;
+  /** The language of the video. */
+  lang?: string;
   board: Board | null; montage: Montage; spend: MonthSpend | null;
   images: Image[]; takes: TakeView[]; clips: Record<string, string>; jobs: Job[]; versions: { version: number; url: string }[];
   changes: { id: string; shot_n: number | null; target: string; note: string | null; region: Region | null; status: string; actor: string; created_at: string }[];
@@ -91,7 +93,7 @@ export function VideoStaged({ data }: { data: StagedData }) {
       )}
       {!board && <Card><CardBody><p className="text-sm text-slate-600">The shots are being written. This takes about a minute.</p></CardBody></Card>}
 
-      {board && status === "script_ready" && <Script key={JSON.stringify(board.shots) + JSON.stringify(board.proposals) + JSON.stringify(board.clip_people ?? {})} board={board} clips={data.clips} busy={busy || !!jobOf("script_apply")} call={call} />}
+      {board && status === "script_ready" && <Script key={JSON.stringify(board.shots) + JSON.stringify(board.proposals) + JSON.stringify(board.clip_people ?? {})} board={board} clips={data.clips} lang={data.lang} busy={busy || !!jobOf("script_apply")} call={call} />}
       {board && stage > 2 && <ScriptSummary board={board} />}
       {board && stage >= 3 && Object.entries(board.clip_people ?? {}).filter(([ref, cp]) => cp.people.length > 1
         && board.shots.some(s => s.kind === "clip" && s.recipe === "swap" && s.source_ref === ref)).map(([ref, cp]) => (
@@ -176,7 +178,7 @@ function MarkDialog({ mark, spend, busy, onConfirm, onCancel }: {
 
 /* ---------- stage 0: the shot table ---------- */
 
-type Row = ShotEdit & { key: string; text_by?: string; locked?: boolean; duration_s?: number; clip?: string | null; how?: string | null; from?: string; to?: string; dub_lang?: string };
+type Row = ShotEdit & { key: string; text_by?: string; locked?: boolean; duration_s?: number; clip?: string | null; how?: string | null; from?: string; to?: string; dub_lang?: string; can_dub?: boolean };
 
 /** A stretch of the client's clip: the player shows that part only. */
 function ClipStretch({ src, from, to }: { src?: string; from: number; to: number }) {
@@ -194,14 +196,14 @@ function clipWords(s: StagedShot): string {
     : "as it is";
 }
 
-function Script({ board, clips, busy, call }: { board: Board; clips: Record<string, string>; busy: boolean; call: Common["call"] }) {
+function Script({ board, clips, lang, busy, call }: { board: Board; clips: Record<string, string>; lang?: string; busy: boolean; call: Common["call"] }) {
   const [rows, setRows] = useState<Row[]>(() => shotsInOrder(board).map(s => ({
     key: `s${s.n}`, n: s.n, kind: s.kind, text: s.text, speaker: s.speaker, camera: s.camera ?? "", link: s.link,
     lips_where: s.lips?.where ?? (s.kind === "pantalla" ? "phone" : "face"), narration: s.narration ?? "", to_phone: !!s.to_phone,
     text_by: s.text_by, locked: s.kind === "clip", duration_s: s.duration_s,
     ...(s.kind === "clip" ? { clip: s.source_ref, how: clipWords(s), from: String(s.source_start_s ?? 0),
       to: String(s.source_end_s ?? Math.round(((s.source_start_s ?? 0) + s.duration_s) * 100) / 100),
-      ...(s.dub ? { dub_lang: s.dub.lang, dub_text: s.dub.text, dub_off: false } : {}) } : {}),
+      ...(s.dub ? { dub_lang: s.dub.lang, dub_text: s.dub.text, dub_off: false } : { can_dub: canDub(s, lang), dub_on: false }) } : {}),
   })));
   const [decisions, setDecisions] = useState<Record<string, string>>(() => Object.fromEntries(board.proposals.map(p => [p.id, p.status])));
   const [endText, setEndText] = useState(board.end_card?.text ?? "");
@@ -222,7 +224,7 @@ function Script({ board, clips, busy, call }: { board: Board; clips: Record<stri
   }, [board]);
   const send = (approve: boolean) => call({
     action: "script_save", approve, end_text: endText, proposals: decisions, clip_who: who,
-    shots: rows.map(({ key: _k, text_by: _t, locked: _l, duration_s: _d, clip: _c, how: _h, dub_lang: _g, from, to, ...e }) =>
+    shots: rows.map(({ key: _k, text_by: _t, locked: _l, duration_s: _d, clip: _c, how: _h, dub_lang: _g, can_dub: _cd, from, to, ...e }) =>
       _l ? { ...e, from_s: Number(from), to_s: Number(to) } : e),
   });
   const open = board.proposals.filter(p => !p.applied);
@@ -285,6 +287,11 @@ function Script({ board, clips, busy, call }: { board: Board; clips: Record<stri
                           <input type="checkbox" checked={!!r.dub_off} onChange={e => set(i, { dub_off: e.target.checked })} data-testid="clip-dub-off" />
                           Keep the original voice in this shot</label>
                       </div>
+                    )}
+                    {r.can_dub && lang && (
+                      <label className="flex items-center gap-1 text-[11px] text-slate-500">
+                        <input type="checkbox" checked={!!r.dub_on} onChange={e => set(i, { dub_on: e.target.checked })} data-testid="clip-dub-on" />
+                        Say this shot in {LANG_NAMES[lang]} with a new voice and the lips moved to it (paid; save to see the translation and the price)</label>
                     )}
                     <div className="flex flex-wrap items-end gap-2">
                       <label className="text-[11px] text-slate-500">From second

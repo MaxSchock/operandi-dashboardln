@@ -15,6 +15,8 @@ export type StagedShot = {
   text: string;
   speaker: string;
   text_by?: "client" | "agent" | "clip";
+  /** kind "clip": the language heard in that stretch. */
+  source_lang?: string | null;
   audio: "line" | "narration" | "none";
   narration?: string | null;
   camera?: string;
@@ -176,7 +178,13 @@ export type ShotEdit = {
   from_s?: number; to_s?: number;
   /** kind "clip", dubbed: the translated words (empty: translate again), or the dubbing taken off. */
   dub_text?: string; dub_off?: boolean;
+  /** kind "clip", heard in another language than the video's: have this shot said in the video's language. */
+  dub_on?: boolean;
 };
+
+/** A stretch of the client's clip whose words were heard in another language than the video's: it can be dubbed. */
+export const canDub = (s: StagedShot, lang: string | undefined) =>
+  s.kind === "clip" && s.text_by === "clip" && !!lang && !!s.source_lang && s.source_lang !== lang && !!LANG_NAMES[lang];
 
 export const LANG_NAMES: Record<string, string> = { de: "German", en: "English", fr: "French", nl: "Dutch", es: "Spanish" };
 
@@ -184,7 +192,7 @@ export const LANG_NAMES: Record<string, string> = { de: "German", en: "English",
  * out again and recomputes lengths and prices (script_apply). */
 export function applyScriptEdits(board: Board, edits: ShotEdit[], endText: string | null | undefined,
                                  decisions: Record<string, string>,
-                                 who: Record<string, unknown> = {}): { board: Board; error?: string } {
+                                 who: Record<string, unknown> = {}, lang?: string): { board: Board; error?: string } {
   if (!edits.length) return { board, error: "the video needs at least one shot" };
   if (edits.length > 12) return { board, error: "at most 12 shots" };
   const by = new Map(board.shots.map(s => [s.n, s as StagedShot & Record<string, unknown>]));
@@ -218,6 +226,9 @@ export function applyScriptEdits(board: Board, edits: ShotEdit[], endText: strin
       else if (old.dub && e.dub_text !== undefined) {
         // Emptied: the engine translates it again when it applies the script.
         s.dub = { ...old.dub, text: String(e.dub_text).trim().slice(0, 600) };
+      } else if (!old.dub && e.dub_on && canDub(old, lang)) {
+        // The engine translates the words when it applies the script, and prices the voice and the lips.
+        s.dub = { lang: lang as string, text: "", of: "" };
       }
       shots.push(s); order.push(s.n); continue;
     }

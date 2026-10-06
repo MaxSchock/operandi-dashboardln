@@ -67,6 +67,7 @@ export async function StagedVideo({ r, isAdmin }: { r: Row; isAdmin: boolean }) 
     : [];
   const spend = sp.data as { cap_usd: number; spent_usd: number; pending_usd: number } | null;
   const data: StagedData = {
+    lang: String((r.brief as { language?: string } | null)?.language ?? "").toLowerCase() || undefined,
     id: r.id, status: r.status, isAdmin, error: r.error, held,
     board: boardOf(r), montage: (r.montage ?? {}) as Montage,
     spend: spend ? { cap_usd: Number(spend.cap_usd), spent_usd: Number(spend.spent_usd), pending_usd: Number(spend.pending_usd) } : null,
