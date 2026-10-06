@@ -174,9 +174,12 @@ function ClipStretch({ src, from, to }: { src?: string; from: number; to: number
     className="w-28 rounded-md border bg-black" data-testid="clip-stretch" />;
 }
 
+/** Uploaded files carry an id in front of their name; the person knows them by the name. */
+const fileName = (name?: string | null) => (name ?? "").replace(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-/, "");
+
 function clipWords(s: StagedShot): string {
   return s.recipe === "swap"
-    ? `with ${s.person_ref ? `the person of ${s.person_ref}` : s.character || "another person"} in the place of the person in it`
+    ? `with ${s.person_ref ? `the person of ${fileName(s.person_ref)}` : s.character || "another person"} in the place of the person in it`
     : "as it is";
 }
 
@@ -245,13 +248,13 @@ function Script({ board, clips, busy, call }: { board: Board; clips: Record<stri
                 <div className="flex flex-wrap items-start gap-3 text-xs text-slate-600" data-testid="clip-row">
                   <ClipStretch src={r.clip ? clips[r.clip] : undefined} from={Number(r.from)} to={Number(r.to)} />
                   <div className="max-w-md space-y-2">
-                    <p>Your clip {r.clip}, {r.how}. It keeps its own sound.</p>
+                    <p>Your clip {fileName(r.clip)}, {r.how}. It keeps its own sound.</p>
                     <p className="text-slate-500">{r.text_by === "clip" ? "Said in this part: " : ""}{r.text}</p>
                     <div className="flex flex-wrap items-end gap-2">
                       <label className="text-[11px] text-slate-500">From second
-                        <input type="number" min={0} step={0.1} value={r.from ?? ""} onChange={e => set(i, { from: e.target.value })} className={`${input} w-20`} data-testid="clip-from" /></label>
+                        <input type="number" min={0} step={0.1} value={r.from ?? ""} onChange={e => set(i, { from: e.target.value })} className={`${input} block`} style={{ width: "5rem" }} data-testid="clip-from" /></label>
                       <label className="text-[11px] text-slate-500">to second
-                        <input type="number" min={0} step={0.1} value={r.to ?? ""} onChange={e => set(i, { to: e.target.value })} className={`${input} w-20`} data-testid="clip-to" /></label>
+                        <input type="number" min={0} step={0.1} value={r.to ?? ""} onChange={e => set(i, { to: e.target.value })} className={`${input} block`} style={{ width: "5rem" }} data-testid="clip-to" /></label>
                       <span className="pb-1 text-[11px] text-slate-400">{Number(r.to) - Number(r.from) > CLIP_MAX_S ? `One shot holds ${CLIP_MAX_S} seconds at most.` : "Save to read the words of the new part."}</span>
                     </div>
                   </div>
