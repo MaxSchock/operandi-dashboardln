@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parseCsv } from "@/lib/calling";
 import { backTo, reasonOf, requireFeature, resolveActor, strategist } from "@/lib/calling-server";
+import { answer } from "@/lib/form-answer";
 
 const MAX_BYTES = 2 * 1024 * 1024; // 500 rows of contacts is far below this; Vercel caps bodies at ~4.5 MB
 const MAX_ROWS = 500;
@@ -29,16 +30,16 @@ export async function POST(req: NextRequest) {
   const rows = parseCsv(await file.text());
   if (!rows.length) {
     back.searchParams.set("notice", "upload:no_rows (header row + at least one contact needed)");
-    return NextResponse.redirect(back, 303);
+    return answer(req, back);
   }
   if (rows.length > MAX_ROWS) {
     back.searchParams.set("notice", `upload:too_many_rows (${rows.length}, max ${MAX_ROWS})`);
-    return NextResponse.redirect(back, 303);
+    return answer(req, back);
   }
   const res = await strategist(`/outreach/calling/${client}/upload`, { json: { rows, label, enrich: true } });
   if (!res.ok) {
     back.searchParams.set("notice", `upload:${reasonOf(res.text)}`);
-    return NextResponse.redirect(back, 303);
+    return answer(req, back);
   }
   try {
     const j = JSON.parse(res.text);
@@ -53,5 +54,5 @@ export async function POST(req: NextRequest) {
     // contact made it in.
     back.searchParams.set("notice", "upload:unreadable response, check the queue before retrying");
   }
-  return NextResponse.redirect(back, 303);
+  return answer(req, back);
 }

@@ -3,6 +3,7 @@
 import { useState, useTransition, type FormEvent, type ReactNode } from "react";
 import { Loader2 } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { noticeText } from "@/lib/calling";
 
 /**
  * A form of the dashboard: it posts with fetch, turns a wheel while the action
@@ -12,7 +13,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
  * The route answers through lib/form-answer.ts.
  *
  * A button may carry `formAction` to post somewhere else, and `name`/`value`.
- * `said` turns the route's notice into the sentence shown under the form.
+ * A notice the route answers with is shown under the form, in the words of `said`.
  */
 export function ActionForm({ action, className, children, reset, working = "Saving...", done, said, confirm, testid }: {
   action: string; className?: string; children: ReactNode;
@@ -49,7 +50,7 @@ export function ActionForm({ action, className, children, reset, working = "Savi
       const d = await res.json().catch(() => ({})) as { error?: string; to?: string; notice?: string | null };
       if (!res.ok) { setError(String(d.error ?? `failed (${res.status})`)); return; }
       if (reset) form.reset();
-      setNote(d.notice ? said?.[d.notice] ?? said?.[d.notice.split(":")[0]] ?? null : done ?? null);
+      setNote(d.notice ? noticeText(d.notice, said) : done ?? null);
       const here = `${path}${search.size ? `?${search}` : ""}`;
       // This page as it is, this page with what the route added to its address (a
       // notice), or the page the action leads to: none of them loads the document again.

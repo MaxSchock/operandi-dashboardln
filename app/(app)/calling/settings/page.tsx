@@ -4,6 +4,7 @@ import { Card, CardHeader, CardBody } from "@/components/ui";
 import { getClientScope } from "@/lib/scope";
 import { getTier } from "@/lib/tier";
 import { DEFAULT_CALL_HINT, type CallingConfig } from "@/lib/calling";
+import { ActionForm } from "@/components/action-form";
 
 export const dynamic = "force-dynamic";
 
@@ -39,15 +40,15 @@ export default async function CallingSettings({ searchParams }: { searchParams: 
         <div className="flex flex-wrap items-center gap-3 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900">
           <span>Follow-up emails are paused since {new Date(c.mailbox_paused_at).toLocaleString("en-GB")}: {c.mailbox_paused_reason ?? "too many bounces"}. Clean the list before resuming.</span>
           {tier.isAdmin && (
-            <form action={`/api/calling/config?client=${encodeURIComponent(client)}&action=resume`} method="post" className="ml-auto">
+            <ActionForm action={`/api/calling/config?client=${encodeURIComponent(client)}&action=resume`} className="ml-auto">
               <button className="rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white hover:opacity-90">Resume sending</button>
-            </form>
+            </ActionForm>
           )}
         </div>
       )}
       {err && <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900">Not saved: {err}</div>}
 
-      <form action={`/api/calling/config?client=${encodeURIComponent(client)}`} method="post" className="space-y-6">
+      <ActionForm action={`/api/calling/config?client=${encodeURIComponent(client)}`} done="Settings saved." className="space-y-6">
         <Card>
           <CardHeader title="On the phone" hint="Shown on every card while calling" />
           <CardBody className="space-y-4 text-sm">
@@ -122,7 +123,7 @@ export default async function CallingSettings({ searchParams }: { searchParams: 
           </>
         )}
         <button className="rounded-md bg-electric px-4 py-2 text-sm font-medium text-white hover:opacity-90">Save</button>
-      </form>
+      </ActionForm>
     </div>
   );
 }

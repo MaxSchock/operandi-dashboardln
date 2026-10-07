@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serviceRoleClient } from "@/lib/supabase/server";
 import { requireFeature, resolveActor } from "@/lib/calling-server";
+import { answer } from "@/lib/form-answer";
 
 /**
  * POST /api/calling/config?client=slug  (form body from /calling/settings)
@@ -20,7 +21,7 @@ export async function POST(req: NextRequest) {
   if (!client || client === "all") return NextResponse.json({ error: "client required" }, { status: 400 });
 
   const back = new URL(`/calling/settings?client=${encodeURIComponent(client)}`, req.url);
-  const fail = (msg: string) => { back.searchParams.set("error", msg); return NextResponse.redirect(back, 303); };
+  const fail = (msg: string) => { back.searchParams.set("error", msg); return answer(req, back); };
   if (req.nextUrl.searchParams.get("action") === "resume") {
     // Admin clears a mailbox paused by the bounce scan.
     if (!who.isAdmin) return fail("only Operandi can resume a paused mailbox");
@@ -29,7 +30,7 @@ export async function POST(req: NextRequest) {
       .eq("client_slug", client);
     if (error) return fail(error.message);
     back.searchParams.set("saved", "1");
-    return NextResponse.redirect(back, 303);
+    return answer(req, back);
   }
   const fd = await req.formData().catch(() => null);
   if (!fd) return fail("could not read the form");
@@ -93,5 +94,5 @@ export async function POST(req: NextRequest) {
   const { error } = await admin.from("calling_config").upsert(row, { onConflict: "client_slug" });
   if (error) return fail(error.message);
   back.searchParams.set("saved", "1");
-  return NextResponse.redirect(back, 303);
+  return answer(req, back);
 }

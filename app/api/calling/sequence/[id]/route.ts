@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serviceRoleClient } from "@/lib/supabase/server";
 import { backTo, reasonOf, requireFeature, resolveActor, strategist } from "@/lib/calling-server";
+import { answer } from "@/lib/form-answer";
 
 /** POST /api/calling/sequence/:id  -> stops an email nurturing sequence (operator decision). */
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
@@ -24,5 +25,5 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     return NextResponse.json({ error: `strategist stop failed: ${res.status} ${res.text.slice(0, 300)}` }, { status: 502 });
   }
   back.searchParams.set("notice", res.ok ? "email:stopped" : `email:${reasonOf(res.text)}`);
-  return NextResponse.redirect(back, 303);
+  return answer(req, back);
 }

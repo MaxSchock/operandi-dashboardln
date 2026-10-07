@@ -9,6 +9,7 @@ function isoOrNull(v: FormDataEntryValue | null): string | null {
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 import { backTo, changedNothing, loadLeadForActor, reasonOf, requireFeature, resolveActor, strategist } from "@/lib/calling-server";
+import { answer } from "@/lib/form-answer";
 
 /**
  * POST /api/calling/outcome/:leadId  (form body)
@@ -51,7 +52,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ leadId: st
   back.hash = `lead-${lid}`;
   if (emailRaw && !isEmail(emailRaw)) {
     back.searchParams.set("notice", "call:bad_email");
-    return NextResponse.redirect(back, 303);
+    return answer(req, back);
   }
 
   const admin = serviceRoleClient().schema("outreach");
@@ -128,5 +129,5 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ leadId: st
       back.searchParams.set("notice", "nurture:drafted");
     }
   }
-  return NextResponse.redirect(back, 303);
+  return answer(req, back);
 }

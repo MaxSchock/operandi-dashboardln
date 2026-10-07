@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveActor, strategist } from "@/lib/calling-server";
+import { answer } from "@/lib/form-answer";
 
 /** POST /api/calling/apollo/add?client=  (form: id[], filters, back). Admin only: spends
  *  Apollo credits. The strategist enforces the client's monthly cap before revealing anyone. */
@@ -27,5 +28,5 @@ export async function POST(req: NextRequest) {
     msg = `Nothing confirmed (strategist ${res.status}). Check the To call tab before trying again.`;
   }
   back.searchParams.set("notice", msg);
-  return NextResponse.redirect(back, 303);
+  return answer(req, back);
 }

@@ -6,10 +6,12 @@ import { getTier } from "@/lib/tier";
 import { LockedPanel } from "@/components/locked-panel";
 import { CallLogForm, TimeZoneCookie } from "@/components/call-log-form";
 import {
-  LINKEDIN_LABEL, OUTCOME_LABEL, OUTCOME_TONE, STAGE_LABEL, TABS, TAB_LABEL,
+  LINKEDIN_LABEL, NOTICE_COPY, noticeText, OUTCOME_LABEL, OUTCOME_TONE, STAGE_LABEL, TABS, TAB_LABEL,
   DEFAULT_CALL_HINT, endOfTodayIso, fmtWhen, latestReply, leadLocale, localTime, ts, orgPhone, orgSize, replyUnhandled, sizeBucket, stageOf, websiteHref,
   type CallingConfig, type CallingStage, type CallingState, type CallingTab, type Enrichment,
 } from "@/lib/calling";
+import { ActionForm } from "@/components/action-form";
+import { FilterForm } from "@/components/filter-form";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -85,28 +87,8 @@ function leadOfDraft(d: DraftRow) {
 
 const SIZE_FILTERS = ["all", "5-20", "21-50", "51+", "1-4", "unknown"] as const;
 
-const NOTICE_COPY: Record<string, string> = {
-  "nurture:drafted": "Call saved. Email 1 is drafted in Today, read it and approve to send.",
-  "nurture:no_email": "Call saved, but this lead has no email address, so no follow-up email was opened. Add the address on the next call.",
-  "nurture:no_consent": "Call saved. No email was drafted because they did not say yes to an email.",
-  "nurture:sequence_exists": "Call saved. A follow-up sequence is already open for this lead.",
-  "nurture:draft_failed": "Call saved, but the email draft could not be written. Try again from the card.",
-  "call:bad_email": "Not saved: that email address does not look right.",
-  "email:sent": "Email sent from your mailbox.",
-  "email:queued": "Approved. It goes out in the next sending window.",
-  "email:rejected": "Draft rejected, sequence stopped.",
-  "email:stopped": "Sequence stopped.",
-  "email:no_email_account": "Your mailbox is not connected yet, nothing was sent. Ask Max for the connection link.",
-  "email:inbound_unanswered": "Not sent: they already wrote to you. Reply by hand, the sequence is stopped.",
-  "email:already_messaged": "Not sent: you already emailed this person by hand. Continue that thread yourself.",
-  "email:provider_unreachable": "Not sent: the mailbox could not be reached. Nothing went out, try again later.",
-  "email:daily_quota_reached": "Not sent: today's email cap is reached. It will go out tomorrow.",
-  "email:mailbox_paused": "Not sent: follow-up emails are paused because too many bounced. See Settings.",
-  "email:bounced": "Not sent: this address bounced. Get the right one on the next call.",
-};
 function noticeCopy(raw: string | undefined): string | null {
-  if (!raw) return null;
-  return NOTICE_COPY[raw] ?? raw.replace(/^[a-z_]+:/, "").replace(/_/g, " ");
+  return raw ? noticeText(raw, NOTICE_COPY) : null;
 }
 
 export default async function CallingPage({ searchParams }: { searchParams: Promise<Record<string, string>> }) {
@@ -274,7 +256,7 @@ export default async function CallingPage({ searchParams }: { searchParams: Prom
 
       <Card>
         <CardBody>
-          <form method="get" className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_9rem_9rem_5rem]">
+          <FilterForm className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_9rem_9rem_5rem]">
             <input type="hidden" name="tab" value={tab} />
             <input name="q" defaultValue={params.q ?? ""} placeholder="Name, company, trade, city, email"
               className="rounded-md border px-3 py-2 text-sm" />
@@ -288,18 +270,18 @@ export default async function CallingPage({ searchParams }: { searchParams: Prom
               </select>
             ) : <input type="hidden" name="client" value={client} />}
             <button className="rounded-md bg-electric px-3 py-2 text-sm font-medium text-white hover:opacity-90">Go</button>
-          </form>
+          </FilterForm>
           {tier.canOperate && tab === "to_call" && (
             <div className="mt-4 flex flex-wrap items-start gap-4 border-t pt-4">
               <details className="text-xs">
                 <summary className="cursor-pointer font-medium text-electric">Upload your own list (CSV)</summary>
-                <form action="/api/calling/upload" method="post" encType="multipart/form-data" className="mt-2 flex flex-wrap items-center gap-2">
+                <ActionForm action="/api/calling/upload" reset said={NOTICE_COPY} working="Uploading and enriching..." className="mt-2 flex flex-wrap items-center gap-2">
                   <input type="file" name="file" accept=".csv,text/csv" required className="text-xs" />
                   <input name="label" placeholder="label (e.g. investors)" className="rounded-md border px-2 py-1 text-xs" />
                   <input type="hidden" name="client" value={uploadClient} />
                   <button className="rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200">Upload &amp; enrich</button>
                   <span className="text-[10px] text-slate-400">Columns: name, company, email, linkedin, phone, website, notes. Max 500 rows. Apollo fills the gaps.</span>
-                </form>
+                </ActionForm>
               </details>
               {tier.isAdmin && (
                 <a href={`/calling/find?client=${encodeURIComponent(uploadClient)}`}
@@ -424,9 +406,9 @@ function LeadCard({ v, tab, tz, canOperate, cfg }: { v: View; tab: CallingTab; t
         <div className="mt-2 flex flex-wrap items-center gap-3 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
           <span>They replied by {v.reply.channel === "email" ? "email" : "LinkedIn"} {fmtWhen(v.reply.at, tz)}. Automatic messages are stopped, answer them yourself.</span>
           {canOperate && (
-            <form action={`/api/calling/lead/${r.lead_id}?action=reply_handled`} method="post" className="ml-auto">
+            <ActionForm action={`/api/calling/lead/${r.lead_id}?action=reply_handled`} className="ml-auto">
               <button className="rounded-md bg-emerald-600 px-2 py-1 font-medium text-white hover:opacity-90">Handled</button>
-            </form>
+            </ActionForm>
           )}
         </div>
       )}
@@ -478,19 +460,19 @@ function LeadCard({ v, tab, tz, canOperate, cfg }: { v: View; tab: CallingTab; t
           <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
             <span>move to:</span>
             {(["to_call", "follow_up", "meeting", "closed"] as const).filter(s => s !== stage).map(s => (
-              <form key={s} action={`/api/calling/lead/${r.lead_id}?action=stage`} method="post">
+              <ActionForm key={s} action={`/api/calling/lead/${r.lead_id}?action=stage`}>
                 <input type="hidden" name="stage" value={s} />
                 <button className="rounded border px-2 py-0.5 hover:bg-slate-50">{STAGE_LABEL[s]}</button>
-              </form>
+              </ActionForm>
             ))}
             <details className="ml-auto">
               <summary className="cursor-pointer">country, time zone, language</summary>
-              <form action={`/api/calling/lead/${r.lead_id}?action=locale`} method="post" className="mt-1 flex flex-wrap items-center gap-1">
+              <ActionForm action={`/api/calling/lead/${r.lead_id}?action=locale`} className="mt-1 flex flex-wrap items-center gap-1">
                 <input name="country" defaultValue={l.country ?? ""} placeholder={loc.country || "country"} className="w-28 rounded border px-1 py-0.5" />
                 <input name="timezone" defaultValue={l.timezone ?? ""} placeholder={loc.tz} className="w-32 rounded border px-1 py-0.5" />
                 <input name="language" defaultValue={l.language ?? ""} placeholder={loc.language} className="w-16 rounded border px-1 py-0.5" />
                 <button className="rounded border px-2 py-0.5 hover:bg-slate-50">Save</button>
-              </form>
+              </ActionForm>
             </details>
           </div>
         </>
@@ -518,7 +500,7 @@ function DraftCard({ d, canOperate }: { d: DraftRow; canOperate: boolean }) {
       </div>
       {d.error && <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">{NOTICE_COPY[`email:${d.error}`] ?? d.error}</div>}
       {canOperate && editable ? (
-        <form action={`/api/calling/email/${d.id}?action=approve`} method="post" className="mt-3 space-y-2">
+        <ActionForm action={`/api/calling/email/${d.id}?action=approve`} said={NOTICE_COPY} working="Working..." done="Saved." className="mt-3 space-y-2">
           <input name="subject" defaultValue={d.subject} className="w-full rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-700" />
           <textarea name="body" defaultValue={d.body} rows={9} className="w-full rounded-md border bg-slate-50 p-3 text-xs leading-5 text-slate-700" />
           <div className="flex flex-wrap items-center gap-2 border-t pt-3">
@@ -527,15 +509,15 @@ function DraftCard({ d, canOperate }: { d: DraftRow; canOperate: boolean }) {
             <button formAction={`/api/calling/email/${d.id}?action=reject`} className="rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200">Reject</button>
             <span className="ml-auto text-[10px] text-slate-400">Edits travel with the approval. Sent from your own mailbox, signed by you.</span>
           </div>
-        </form>
+        </ActionForm>
       ) : (
         <div className="mt-3">
           <div className="text-xs font-medium text-slate-700">{d.subject}</div>
           <pre className="mt-1 whitespace-pre-wrap rounded-md bg-slate-50 p-3 text-xs leading-5 text-slate-700">{d.body}</pre>
           {canOperate && (
-            <form action={`/api/calling/sequence/${d.sequence_id}`} method="post" className="mt-2">
+            <ActionForm action={`/api/calling/sequence/${d.sequence_id}`} said={NOTICE_COPY} className="mt-2">
               <button className="rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200">Stop sequence</button>
-            </form>
+            </ActionForm>
           )}
         </div>
       )}

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { serviceRoleClient } from "@/lib/supabase/server";
 import { CALLING_STAGES, type CallingStage, type CallingState } from "@/lib/calling";
 import { backTo, changedNothing, loadLeadForActor, requireFeature, resolveActor, strategist } from "@/lib/calling-server";
+import { answer } from "@/lib/form-answer";
 
 /**
  * POST /api/calling/lead/:leadId?action=...  (form body)
@@ -66,7 +67,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ leadId: st
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     const back = backTo(req);
     back.hash = `lead-${lid}`;
-    return NextResponse.redirect(back, 303);
+    return answer(req, back);
   } else {
     return NextResponse.json({ error: "unknown action" }, { status: 400 });
   }
@@ -90,5 +91,5 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ leadId: st
   }
   const back = backTo(req);
   back.hash = `lead-${lid}`;
-  return NextResponse.redirect(back, 303);
+  return answer(req, back);
 }

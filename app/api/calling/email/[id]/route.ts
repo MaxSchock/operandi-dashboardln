@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serviceRoleClient } from "@/lib/supabase/server";
 import { backTo, changedNothing, reasonOf, requireFeature, resolveActor, strategist } from "@/lib/calling-server";
+import { answer } from "@/lib/form-answer";
 
 /**
  * POST /api/calling/email/:id?action=save|approve|reject
@@ -44,9 +45,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     if (res.error) return NextResponse.json({ error: res.error.message }, { status: 500 });
     if (changedNothing(res)) {
       back.searchParams.set("notice", "email:not-a-draft-any-more");
-      return NextResponse.redirect(back, 303);
+      return answer(req, back);
     }
-    return NextResponse.redirect(back, 303);
+    return answer(req, back);
   }
 
   if (action === "approve" || action === "reject") {
@@ -57,7 +58,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     if (!res.ok) {
       if (res.status === 409) {
         back.searchParams.set("notice", `email:${reasonOf(res.text)}`);
-        return NextResponse.redirect(back, 303);
+        return answer(req, back);
       }
       return NextResponse.json({ error: `strategist ${action} failed: ${res.status} ${res.text.slice(0, 300)}` }, { status: 502 });
     }
@@ -65,7 +66,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       const j = JSON.parse(res.text);
       back.searchParams.set("notice", j.queued ? "email:queued" : (action === "approve" ? "email:sent" : "email:rejected"));
     } catch { /* ignore */ }
-    return NextResponse.redirect(back, 303);
+    return answer(req, back);
   }
 
   return NextResponse.json({ error: "unknown action" }, { status: 400 });

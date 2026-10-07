@@ -309,3 +309,30 @@ export function localTime(tz: string, now = new Date()): string {
     return "";
   }
 }
+
+/** What the calling routes answer with (`?notice=`), in words. Shown as the page
+ * banner and under the form that caused it. */
+export const NOTICE_COPY: Record<string, string> = {
+  "nurture:drafted": "Call saved. Email 1 is drafted in Today, read it and approve to send.",
+  "nurture:no_email": "Call saved, but this lead has no email address, so no follow-up email was opened. Add the address on the next call.",
+  "nurture:no_consent": "Call saved. No email was drafted because they did not say yes to an email.",
+  "nurture:sequence_exists": "Call saved. A follow-up sequence is already open for this lead.",
+  "nurture:draft_failed": "Call saved, but the email draft could not be written. Try again from the card.",
+  "call:bad_email": "Not saved: that email address does not look right.",
+  "email:sent": "Email sent from your mailbox.",
+  "email:queued": "Approved. It goes out in the next sending window.",
+  "email:rejected": "Draft rejected, sequence stopped.",
+  "email:stopped": "Sequence stopped.",
+  "email:no_email_account": "Your mailbox is not connected yet, nothing was sent. Ask Max for the connection link.",
+  "email:inbound_unanswered": "Not sent: they already wrote to you. Reply by hand, the sequence is stopped.",
+  "email:already_messaged": "Not sent: you already emailed this person by hand. Continue that thread yourself.",
+  "email:provider_unreachable": "Not sent: the mailbox could not be reached. Nothing went out, try again later.",
+  "email:daily_quota_reached": "Not sent: today's email cap is reached. It will go out tomorrow.",
+  "email:mailbox_paused": "Not sent: follow-up emails are paused because too many bounced. See Settings.",
+  "email:bounced": "Not sent: this address bounced. Get the right one on the next call.",
+};
+
+/** A notice in words: its sentence, or the code itself made readable. */
+export function noticeText(raw: string, copy: Record<string, string> = {}): string {
+  return copy[raw] ?? raw.replace(/^[a-z_]+:/, "").replace(/_/g, " ");
+}

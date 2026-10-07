@@ -4,6 +4,8 @@ import { Card, CardHeader, CardBody, Badge } from "@/components/ui";
 import { getClientScope } from "@/lib/scope";
 import { getTier } from "@/lib/tier";
 import { strategist } from "@/lib/calling-server";
+import { ActionForm } from "@/components/action-form";
+import { FilterForm } from "@/components/filter-form";
 
 export const dynamic = "force-dynamic";
 
@@ -87,7 +89,7 @@ export default async function FindInApollo({ searchParams }: { searchParams: Pro
               ))}
             </div>
           )}
-          <form action="/calling/find" method="get" className="grid gap-4 text-sm md:grid-cols-2">
+          <FilterForm action="/calling/find" className="grid gap-4 text-sm md:grid-cols-2">
             <input type="hidden" name="client" value={client} />
             <input type="hidden" name="run" value="1" />
             <label>Job titles<textarea name="titles" rows={3} defaultValue={join(filters.titles)} className={input} placeholder={"Owner\nDirector"} /></label>
@@ -102,13 +104,13 @@ export default async function FindInApollo({ searchParams }: { searchParams: Pro
             <div className="flex items-end">
               <button className="rounded-md bg-electric px-4 py-2 text-sm font-medium text-white hover:opacity-90">Search (free)</button>
             </div>
-          </form>
+          </FilterForm>
           {hasFilters && (
-            <form action={`/api/calling/apollo/save?client=${slug}`} method="post" className="mt-4 flex items-center gap-2 text-xs">
+            <ActionForm action={`/api/calling/apollo/save?client=${slug}`} className="mt-4 flex items-center gap-2 text-xs">
               <input type="hidden" name="filters" value={JSON.stringify(filters)} />
               <input name="name" required maxLength={40} placeholder="name this search" className="rounded-md border px-2 py-1" />
               <button className="rounded-md border px-2 py-1 text-slate-700 hover:bg-slate-50">Save search</button>
-            </form>
+            </ActionForm>
           )}
         </CardBody>
       </Card>
@@ -120,7 +122,7 @@ export default async function FindInApollo({ searchParams }: { searchParams: Pro
         <Card>
           <CardHeader title={`${result.total ?? 0} people match`} hint={`Page ${page}. Ticked: has a phone and is not in your list yet.`} />
           <CardBody>
-            <form action={`/api/calling/apollo/add?client=${slug}`} method="post">
+            <ActionForm action={`/api/calling/apollo/add?client=${slug}`} working="Adding...">
               <input type="hidden" name="filters" value={JSON.stringify(filters)} />
               <input type="hidden" name="back" value={`/calling/find?${qs(filters, { client, run: "1", page: String(page) })}`} />
               <table className="w-full text-left text-xs">
@@ -149,7 +151,7 @@ export default async function FindInApollo({ searchParams }: { searchParams: Pro
                   {result.people.length === 25 && <a className="text-electric hover:underline" href={`/calling/find?${qs(filters, { client, run: "1", page: String(page + 1) })}`}>next →</a>}
                 </span>
               </div>
-            </form>
+            </ActionForm>
           </CardBody>
         </Card>
       )}

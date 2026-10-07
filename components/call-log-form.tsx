@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { NURTURE_BRANCHES, OUTCOME_LABEL } from "@/lib/calling";
+import { NOTICE_COPY, NURTURE_BRANCHES, OUTCOME_LABEL } from "@/lib/calling";
+import { ActionForm } from "@/components/action-form";
 
 /** `datetime-local` value (no zone) for a Date, in the browser's own time. */
 function localInput(d: Date): string {
@@ -64,7 +65,7 @@ export function CallLogForm({
     ["next week", () => nextMonday(10)],
   ];
   return (
-    <form action={`/api/calling/outcome/${leadId}`} method="post" className="mt-3 space-y-2 rounded-md border border-slate-200 p-3">
+    <ActionForm action={`/api/calling/outcome/${leadId}`} reset said={NOTICE_COPY} done="Call saved." className="mt-3 space-y-2 rounded-md border border-slate-200 p-3">
       <div className="flex flex-wrap gap-2 text-xs">
         {(["no_answer", "red", "orange", "green"] as const).map(o => (
           <label key={o} className={`flex cursor-pointer items-center gap-1 rounded-md border px-2 py-1 ${outcome === o ? "border-electric bg-electric/5" : ""}`}>
@@ -120,6 +121,6 @@ export function CallLogForm({
         {outcome !== "red" && <label className="flex items-center gap-1"><input type="checkbox" name="linkedin_connect" /> connect on LinkedIn</label>}
         <button className="ml-auto rounded-md bg-electric px-3 py-1 text-xs font-medium text-white hover:opacity-90">Save call</button>
       </div>
-    </form>
+    </ActionForm>
   );
 }
