@@ -108,6 +108,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: stri
   }
   // Say what was actually queued. Without this the caller had no way to notice that
   // their topics had been dropped or cut into pieces: the page just reloaded.
+  // Called with fetch by the board: what was queued comes back as data.
+  const asData = (req.headers.get("accept") ?? "").includes("application/json");
   const back = new URL(req.headers.get("referer") ?? "/content", req.url);
   back.searchParams.delete("actionError");
   if (!res.ok) {
@@ -116,9 +118,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: stri
     const detail = await res.text().catch(() => "");
     let reason = detail;
     try { reason = JSON.parse(detail).detail ?? detail; } catch { /* keep raw */ }
+    if (asData) return NextResponse.json({ error: `generate failed: ${String(reason)}`.slice(0, 220) }, { status: res.status });
     back.searchParams.set("actionError", `generate failed: ${String(reason)}`.slice(0, 220));
     return NextResponse.redirect(back, 303);
   }
+  if (asData) return NextResponse.json({ ok: true, queued: count, topics: topics.length, dropped: droppedTopics, textOnly });
   back.searchParams.set("queued", String(count));
   back.searchParams.set("queuedTopics", String(topics.length));
   if (droppedTopics > 0) back.searchParams.set("queuedDropped", String(droppedTopics));

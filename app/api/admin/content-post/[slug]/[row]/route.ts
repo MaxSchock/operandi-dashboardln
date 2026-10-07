@@ -88,8 +88,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: stri
       method: "POST", headers, body: JSON.stringify(pl), cache: "no-store",
     });
 
-  // 303 so the browser re-GETs the page, anchored on the card just acted on —
-  // otherwise every action lands the user back at the top of the list.
+  // The board calls this with fetch and asks for JSON: it gets the outcome as
+  // data and redraws its own card. A plain form post (no script) still gets the
+  // 303 back to the page, anchored on the card just acted on.
+  const asData = (req.headers.get("accept") ?? "").includes("application/json");
   const back = new URL(req.headers.get("referer") ?? "/content", req.url);
   back.hash = `post-${slug}-${row}`;
   // Failures go back to the page too (raw JSON is unreadable for clients).
@@ -98,6 +100,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: stri
     const detail = await res.text().catch(() => "");
     let reason = detail;
     try { reason = JSON.parse(detail).detail ?? detail; } catch { /* keep raw */ }
+    if (asData) return NextResponse.json({ error: String(reason).slice(0, 220) }, { status: res.status });
     back.searchParams.set("actionError", String(reason).slice(0, 220));
     return NextResponse.redirect(back, 303);
   };
@@ -128,6 +131,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: stri
     return NextResponse.json({ error: `strategist unreachable: ${String(e)}` }, { status: 502 });
   }
   if (!res.ok) return fail(res);
+  if (asData) return NextResponse.json({ ok: true, action });
   back.searchParams.delete("actionError");
   return NextResponse.redirect(back, 303);
 }

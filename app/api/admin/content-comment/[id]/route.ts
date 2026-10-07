@@ -47,6 +47,14 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     .eq("id", id)
     .in("action", ["draft", "draft_sent", "draft_done"])
     .select("id");
+  // Called with fetch by the board: the outcome as data, no trip back to the page.
+  if ((req.headers.get("accept") ?? "").includes("application/json")) {
+    if (error) return NextResponse.json({ error: `comment draft: ${error.message}`.slice(0, 220) }, { status: 500 });
+    if (!updated || updated.length === 0) {
+      return NextResponse.json({ error: "That draft changed while you were looking at it." }, { status: 409 });
+    }
+    return NextResponse.json({ ok: true, action });
+  }
   const back = new URL(req.headers.get("referer") ?? "/content", req.url);
   back.hash = `comments-${owned.content_slug}`;
   if (error) {
