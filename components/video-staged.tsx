@@ -606,7 +606,7 @@ function ShotCard({ s, data, board, busy, call, pay, setMark, jobOf, price }: Co
                 {swap && !job && <button type="button" disabled={busy} className={`${btn} border text-slate-700`} data-testid="take-reswap"
                   onClick={() => pay(`Put the person into shot ${label} again`, price, { action: "film", shot: s.n })}>
                   Make it again ({usd(price)})</button>}
-                {!isClip && !isText && take.frames.length > 0 && !job && <button type="button" disabled={busy} className={`${btn} border text-slate-700`} data-testid="take-refilm"
+                {!isClip && !isText && (host || take.frames.length > 0) && !job && <button type="button" disabled={busy} className={`${btn} border text-slate-700`} data-testid="take-refilm"
                   onClick={() => { const f = frameAt(); setMark({ title: `Film shot ${label} again (paused at ${f.frame_s.toFixed(1)}s)`, src: f.src, price, needNote: true, body: { action: "film", shot: s.n, frame_s: f.frame_s } }); }}>
                   Film again with a note ({usd(price)})</button>}
               </div>

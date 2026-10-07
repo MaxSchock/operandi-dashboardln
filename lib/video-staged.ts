@@ -331,8 +331,9 @@ export function applyScriptEdits(board: Board, edits: ShotEdit[], endText: strin
   }
   // The other people of a clip made with a new presenter: the engine lays the screen out again.
   const clip_layout = { ...(board.clip_layout ?? {}) };
+  const asked = new Set(othersIn(board));
   for (const [ref, v] of Object.entries(others)) {
-    if (clip_layout[ref] && (v === "keep" || v === "remove")) clip_layout[ref] = { ...clip_layout[ref], others: v };
+    if (asked.has(ref) && (v === "keep" || v === "remove")) clip_layout[ref] = { ...clip_layout[ref], others: v };
   }
   return { board: { ...board, shots, order, proposals, end_card, ...(board.clip_people ? { clip_people } : {}),
                     ...(board.clip_layout ? { clip_layout } : {}) } };

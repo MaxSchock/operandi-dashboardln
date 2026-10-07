@@ -10,7 +10,7 @@ type LinkedPost = { id: string; label: string };
 // Same limit as MAX_REQUEST_CHARS in lib/videos.ts (server-only module).
 const MAX_CHARS = 2000;
 
-const fileId = (f: File) => `${f.name}-${f.size}`;
+const fileId = (f: File) => `${f.name}-${f.size}-${f.type}-${f.lastModified}`;
 
 /**
  * The client's video form: one field saying what should happen, the language
@@ -187,7 +187,7 @@ export function VideoRequestSimple({
                     ? <option value="swap">Remake this clip with another person</option>
                     : <option value="person">The person who appears in the video</option>}
                 </select>
-                <button type="button" onClick={() => setFiles(prev => prev.filter((_, j) => j !== i))}
+                <button type="button" onClick={() => { setFiles(prev => prev.filter((_, j) => j !== i)); setUses(({ [fileId(f)]: _gone, ...rest }) => rest); }}
                   className="text-slate-400 hover:text-red-600">remove</button>
               </li>
             ))}
