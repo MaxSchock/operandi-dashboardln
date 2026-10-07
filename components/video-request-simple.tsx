@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { PayDialog, type MonthSpend } from "@/components/video-pay";
 import { HEAR_USD, HEAR_MAX_VIDEOS } from "@/lib/video-staged";
+import { VideoRequestLaunch } from "@/components/video-request-launch";
 
 type LinkedPost = { id: string; label: string };
 
@@ -43,6 +44,8 @@ export function VideoRequestSimple({
   // What the client said a file is for; unsaid, the agent decides.
   const [uses, setUses] = useState<Record<string, string>>({});
   const [fileWarning, setFileWarning] = useState<string | null>(null);
+  // A product launch video is asked for with its own short form (a page address).
+  const [launch, setLaunch] = useState(false);
 
   const who = characters.length ? characters.join(" or ") : "someone from your team";
   const host = characters[0] ?? "our founder";
@@ -113,8 +116,19 @@ export function VideoRequestSimple({
     }
   }
 
+  if (launch) return <VideoRequestLaunch onBack={() => setLaunch(false)} backLabel="Back to describing a video" />;
+
   return (
     <form onSubmit={onSubmit} className="space-y-4">
+      {staged && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+          <span>Launching a product or a service? We turn its page into a short animated video.</span>
+          <button type="button" onClick={() => setLaunch(true)} data-testid="launch-open"
+            className="rounded-md border border-slate-300 bg-white px-2.5 py-1 font-medium text-slate-700 hover:bg-slate-100">
+            Product launch
+          </button>
+        </div>
+      )}
       <Field label="What should happen in the video?" required>
         <textarea name="request" required minLength={10} maxLength={MAX_CHARS} rows={6} placeholder={example}
           className="w-full rounded-md border bg-white px-2 py-1.5 text-sm leading-5" />

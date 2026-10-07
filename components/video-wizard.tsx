@@ -1,5 +1,6 @@
 "use client";
 
+import { VideoRequestLaunch } from "@/components/video-request-launch";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { DialogueFields, emptyDialogue, type DialogueCharacter, type DialogueState } from "@/components/video-dialogue-fields";
@@ -40,6 +41,7 @@ export function VideoWizard({
   const [style, setStyle] = useState("broll");
   const [dialogue, setDialogue] = useState<DialogueState>(emptyDialogue);
   const isDialogue = style === "dialogue";
+  const isLaunch = style === "launch";
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -125,6 +127,8 @@ export function VideoWizard({
     }
   }
 
+  if (isLaunch) return <VideoRequestLaunch onBack={() => setStyle("broll")} backLabel="Back to the detailed form" />;
+
   return (
     <form onSubmit={onSubmit} className="space-y-4">
       <Field label="What should this video achieve?" required>
@@ -149,6 +153,7 @@ export function VideoWizard({
           <option value="broll">Scenes: your uploaded clips plus AI footage, narrator voiceover, captions (recommended)</option>
           <option value="dialogue">Dialogue: you write who says what, line by line (people and your app talking)</option>
           <option value="typography">Text-driven: animated text cards, music, no voice</option>
+          <option value="launch">Product launch: animated scenes from the product&apos;s page (own short form)</option>
           <option value="talking_head" disabled={!voiceAvailable}>
             Talking head: you speaking to camera{voiceAvailable ? "" : " (locked: your voice clone is not connected yet)"}
           </option>

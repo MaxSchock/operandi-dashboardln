@@ -11,7 +11,9 @@ import type { VideoActor, VideoRequest } from "@/lib/videos";
 
 export type StagedShot = {
   n: number;
-  kind: "persona" | "pantalla" | "silent" | "ceo" | "clip" | "text" | "motion";
+  kind: "persona" | "pantalla" | "silent" | "ceo" | "clip" | "text" | "motion" | "launch";
+  /** kind "launch": a scene of a product launch video, with what the engine planned to show in it. */
+  show?: { role: string; shows: string } | null;
   /** kind "motion": what the drawn shot shows besides its words, one of the client's own pictures or a short list. */
   card?: { role: "screen" | "points"; image: string | null; points: string[] } | null;
   text: string;
@@ -216,7 +218,11 @@ const KINDS = new Set(["persona", "pantalla", "silent", "ceo"]);
 export const TEXT_MAX_CHARS = 160;
 /** A video the engine draws itself, for free: words on screen (kind "text"), some with one of the
  * client's own pictures or a short list (kind "motion"). No voice, nothing filmed. */
-export const isDrawn = (kind: string | undefined) => kind === "text" || kind === "motion";
+export const isDrawn = (kind: string | undefined) => kind === "text" || kind === "motion" || kind === "launch";
+/** A product launch video: every shot is a scene of one animated page the engine writes from the
+ * client's product page (kind "launch"). Its words are up to three short lines, one per line. */
+export const isLaunchBoard = (b: Board) => b.shots.length > 0 && b.shots.every(s => s.kind === "launch");
+export const LAUNCH_MAX_CHARS = 300;
 export const isTextBoard = (b: Board) => b.shots.length > 0 && b.shots.every(s => isDrawn(s.kind));
 export const CARD_POINTS = 3;
 export type ShotEdit = {
@@ -256,10 +262,13 @@ export function applyScriptEdits(board: Board, edits: ShotEdit[], endText: strin
   const order: number[] = [];
   // A video of text on screen holds only cards of text: every shot of it is one.
   const textBoard = isTextBoard(board);
+  const launchBoard = isLaunchBoard(board);
   for (const e of edits) {
-    const text = String(e.text ?? "").trim().slice(0, textBoard ? TEXT_MAX_CHARS : 400);
+    const text = launchBoard
+      ? String(e.text ?? "").split("\n").map(l => l.replace(/\s+/g, " ").trim()).filter(Boolean).slice(0, 3).join("\n").slice(0, LAUNCH_MAX_CHARS)
+      : String(e.text ?? "").trim().slice(0, textBoard ? TEXT_MAX_CHARS : 400);
     if (!text) return { board, error: "every shot needs its words (or what happens, for a shot without words)" };
-    const kind = textBoard ? "text" : KINDS.has(String(e.kind)) ? String(e.kind) : "persona";
+    const kind = launchBoard ? "launch" : textBoard ? "text" : KINDS.has(String(e.kind)) ? String(e.kind) : "persona";
     const old = e.n !== null ? by.get(e.n) : undefined;
     const s = (old ? { ...old } : { n: next++, text_by: "client", link_edited: true }) as StagedShot & Record<string, unknown>;
     if (order.includes(s.n)) continue;
@@ -291,6 +300,12 @@ export function applyScriptEdits(board: Board, edits: ShotEdit[], endText: strin
     }
     s.text = text;
     s.kind = kind as StagedShot["kind"];
+    if (kind === "launch") {
+      s.speaker = ""; s.link = "cut"; s.narration = null; s.line = null; s.to_phone = false; s.card = null;
+      // A scene the client adds: the engine decides what it shows when it draws the page.
+      if (!s.show) s.show = { role: "highlight", shows: "" };
+      shots.push(s); order.push(s.n); continue;
+    }
     if (kind === "text") {
       s.speaker = ""; s.link = "cut"; s.narration = null; s.line = null; s.to_phone = false;
       // The engine checks the picture against the client's files and decides the kind.

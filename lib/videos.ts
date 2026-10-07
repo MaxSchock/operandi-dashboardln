@@ -217,7 +217,7 @@ export function wantsJson(req: Request): boolean {
 export const MAX_REQUEST_CHARS = 2000;
 
 const STYLE_NAMES: Record<string, string> = {
-  auto: "choosing the style", dialogue: "dialogue", broll: "scenes", typography: "text only", talking_head: "talking head",
+  auto: "choosing the style", dialogue: "dialogue", broll: "scenes", typography: "text only", talking_head: "talking head", launch: "product launch",
 };
 
 /** How the style reads in the panel ("auto" until the agent has chosen). */

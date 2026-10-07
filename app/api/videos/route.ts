@@ -47,6 +47,7 @@ export async function POST(req: NextRequest) {
   // picks style, length, message, CTA and lines (video-engine app/decide.py)
   // before the storyboard. Cost and final length are written by the engine.
   if (style === "auto") return createAuto(req, body, actor);
+  if (style === "launch") return createLaunch(body, actor);
 
   if (!STYLES.has(style)) return NextResponse.json({ error: "invalid style" }, { status: 400 });
   // A dialogue video carries its message in the client's own lines: goal is
@@ -107,6 +108,52 @@ export async function POST(req: NextRequest) {
 }
 
 
+
+const TONES = new Set(["default", "polished", "yc-parody", "chaotic", "deadpan", "cinematic", "app-store"]);
+
+/**
+ * Product launch video: the engine opens the product's page and proposes
+ * animated scenes from its own material (video-engine app/launch.py). Only
+ * in the step-by-step flow: the scenes are rows of the script.
+ */
+async function createLaunch(body: Record<string, unknown>, actor: VideoActor) {
+  if (!actor.features.video_staged_flow) {
+    return NextResponse.json({ error: "product launch videos are not enabled for your account yet" }, { status: 403 });
+  }
+  const request = String(body.request ?? "").trim().slice(0, 400);
+  const language = String(body.language ?? "").trim();
+  if (!LANGS.has(language)) return NextResponse.json({ error: "invalid language" }, { status: 400 });
+  let url = String(body.product_url ?? "").trim();
+  if (url && !/^https?:\/\//i.test(url)) url = `https://${url}`;
+  let host = "";
+  try { host = new URL(url).hostname; } catch { /* reported below */ }
+  if (!host.includes(".") || url.length > 500) {
+    return NextResponse.json({ error: "write the address of your product's page, for example https://www.yourcompany.com/product" }, { status: 400 });
+  }
+  const asked = Number(body.duration_s);
+  const durationS = Math.min(Math.max(Number.isFinite(asked) && asked > 0 ? Math.round(asked) : 20, 12), 30);
+  const tone = TONES.has(String(body.tone)) ? String(body.tone) : null;
+
+  const svc = serviceRoleClient();
+  const { data, error: dbError } = await svc.from("video_requests").insert({
+    client_slug: actor.clientSlug,
+    content_slug: actor.contentSlug,
+    status: "draft",
+    brief: {
+      style: "launch", flow: "staged", request, language, product_url: url, tone, duration_s: durationS,
+      goal: request ? (request.length > 80 ? `${request.slice(0, 77)}...` : request) : `Product launch: ${host}`,
+      linked_post_id: null, aspect: "9:16", voice: false, music: false,
+    },
+    duration_s: durationS,
+    // Drawn by the engine itself: nothing is asked of a paid provider.
+    cost_estimated_usd: 0,
+    created_by: actor.tier.userId,
+  }).select("id").single();
+  if (dbError) return NextResponse.json({ error: dbError.message }, { status: 500 });
+
+  await addEvent(data.id, "created", actor, { style: "launch", product_url: url });
+  return NextResponse.json({ id: data.id });
+}
 
 async function createAuto(req: NextRequest, body: Record<string, unknown>, actor: VideoActor) {
   const request = String(body.request ?? "").trim();
