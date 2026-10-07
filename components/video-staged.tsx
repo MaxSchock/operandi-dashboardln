@@ -10,7 +10,7 @@ import { shotsInOrder, whoMissing, isHost, othersIn, CLIP_MAX_S, LANG_NAMES, TEX
 type Image = { id: string; n: number; role: "start" | "end"; version: number; status: string; notes: string | null; carried: boolean; url: string };
 type TakeView = {
   id: string; n: number; version: number; status: string; notes: string | null; duration_s: number; voice_end_s: number | null;
-  first_last: boolean; lips: { where: string | null; done: boolean; reason: string | null; dub?: string | null; dub_failed?: string | null } | null; url: string; frames: string[]; checks: string[];
+  first_last: boolean; lips: { where: string | null; done: boolean; reason: string | null; dub?: string | null; dub_failed?: string | null } | null; url: string; frames: string[]; checks: string[]; hands?: { what: string; at_s: number; url: string | null } | null;
 };
 export type StagedData = {
   id: string; status: string; isAdmin: boolean; error: string | null; held: boolean;
@@ -591,6 +591,14 @@ function ShotCard({ s, data, board, busy, call, pay, setMark, jobOf, price }: Co
                 {swap && !job && <button type="button" disabled={busy} className="ml-1 underline" data-testid="take-dub"
                   onClick={() => pay(`Say shot ${label} in ${dubLang}`, dubPrice, { action: "film", shot: s.n, what: "dub" })}>
                   Make the voice ({usd(dubPrice)})</button>}
+              </div>
+            )}
+            {take.hands && take.status !== "stale" && (
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-amber-800" data-testid="take-hands">
+                We looked at the hands through the whole take: at {take.hands.at_s.toFixed(1)}s one of them shows this, which the presenter&apos;s picture does not have: {take.hands.what}. The video model added it. Watch that moment before you approve; filming it again needs a note and costs the price shown below.
+                {take.hands.url && <a href={take.hands.url} target="_blank" rel="noreferrer" className="mt-1 block">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={take.hands.url} alt="the frame, with the hand marked" className="h-32 rounded border" /></a>}
               </div>
             )}
             {take.checks.length > 0 && <div className="flex gap-1">{take.checks.map(c => <a key={c} href={c} target="_blank" rel="noreferrer">

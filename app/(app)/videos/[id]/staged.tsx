@@ -52,6 +52,8 @@ export async function StagedVideo({ r, isAdmin }: { r: Row; isAdmin: boolean }) 
         dub: t.lips.dub ?? null, dub_failed: t.lips.dub_failed ?? null } : null,
       url: await sign(t.storage_key),
       frames: await Promise.all(Array.from({ length: count }, (_, i) => sign(`${t.frames_prefix}/f-${String(i + 1).padStart(3, "0")}.jpg`))),
+      hands: t.lips?.hands && t.lips.hands.ok === false
+        ? { what: t.lips.hands.what ?? "a ring", at_s: Number(t.lips.hands.at_s ?? 0), url: t.lips.hands.key ? await sign(t.lips.hands.key) : null } : null,
       checks: isAdmin ? await Promise.all((t.lips?.check ?? []).slice(0, 3).map(sign)) : [],
     };
   }));

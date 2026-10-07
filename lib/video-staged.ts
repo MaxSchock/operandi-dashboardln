@@ -111,7 +111,9 @@ export type Take = {
   audio_key: string | null; model: string | null; duration_s: number; voice_end_s: number | null;
   status: "proposed" | "approved" | "rejected" | "failed" | "stale"; cost_usd: number; notes: string | null;
   lips: { where?: string | null; done?: boolean; checked?: boolean; reason?: string; check?: string[]; region?: Region;
-    recipe?: string; dub?: string; dub_failed?: string } | null;
+    recipe?: string; dub?: string; dub_failed?: string;
+    /** A filmed presenter: what the engine saw on the hands (a ring, something held) that the picture does not have. */
+    hands?: { ok: boolean; what?: string; at_s?: number; key?: string | null } | null } | null;
 };
 
 export type Job = {
