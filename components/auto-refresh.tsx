@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 /**
  * Polls the current page for fresh server data every `intervalMs` ms by
@@ -11,10 +11,19 @@ import { useRouter } from "next/navigation";
  *
  * Pauses while the tab is hidden to avoid burning fetches when nobody's
  * looking and to keep mobile from waking the radio.
+ *
+ * Legacy (CLAUDE.md, UI criterion): pages that keep their own data up to date
+ * are listed in SELF_UPDATING and left alone. A page leaves this timer by
+ * getting a GET of its data and a component that asks for it, like Content.
  */
+const SELF_UPDATING = [/^\/content$/, /^\/videos\/[^/]+$/];
+
 export function AutoRefresh({ intervalMs = 30_000 }: { intervalMs?: number }) {
   const router = useRouter();
+  const path = usePathname();
+  const own = SELF_UPDATING.some(re => re.test(path));
   useEffect(() => {
+    if (own) return;
     let id: ReturnType<typeof setInterval> | null = null;
     // Skip the refresh while the user is mid-edit: typing in a field or having
     // an expanded <details> form open. A refresh re-renders the server payload
@@ -40,6 +49,6 @@ export function AutoRefresh({ intervalMs = 30_000 }: { intervalMs?: number }) {
       document.removeEventListener("visibilitychange", onVisibility);
       stop();
     };
-  }, [router, intervalMs]);
+  }, [router, intervalMs, own]);
   return null;
 }

@@ -8,11 +8,20 @@ Next.js 14 (app router) on Vercel. Data in Supabase project `xepotlbqlwmriwievyv
 2. **Anything being processed** (video, picture, text, post) shows a turning wheel with what is being made and how long it takes, **in the place where the result will appear**; when done, the result appears there.
 3. **Actions** (approve, edit, date, upload) go through `fetch` from a client component and update their own card. No `<form action=... method="post">` with a 303 redirect back to the page.
 4. **Signed file links are stable**: `presignGet` signs as of the top of the hour, so a re-render hands the browser the same `src` and a `<video>` keeps playing.
-5. `router.refresh()` is for one-off needs (the page header after a change of state), never on an interval. The layout's `AutoRefresh` (30 s) is legacy, to be replaced page by page.
+5. `router.refresh()` is for one-off needs (the page header after a change of state), never on an interval.
 
-Reference implementation: `components/video-staged.tsx` (state + poll of `GET /api/videos/:id/staged` + `Working`), `lib/video-staged-load.ts`, `lib/minio.ts`.
+### How to build it (mandatory for anything new)
 
-Still to migrate as of 2026-10-07 (classic forms per page): `content` 12 · `videos/[id]` outside the staged flow 7 · `calling` 7 (+3 find, +2 settings) · `distribution` 6 · `engagement` 4 · `templates` 3 (+1 edit) · `admin/clients/[slug]` 3.
+- **An action** (any POST from a screen): `<ActionForm action="/api/...">` from `components/action-form.tsx` instead of `<form method="post">`. It sends by `fetch`, disables its fields and shows a wheel, and writes the result or the error inside the form. The route ends with `return answer(req, back)` from `lib/form-answer.ts`: JSON for `ActionForm`, the old 303 for anything else. `?notice=` and `?error=` / `?actionError=` on `back` become the message.
+- **A filter or search** (GET): `<FilterForm>` from `components/filter-form.tsx`, which changes the URL without loading the document.
+- **A screen whose data changes by itself** (something is being written, drawn, rendered): one loader in `lib/` used by both the page and a GET route, and a client board holding `useState(served)` that asks the GET while there is work and redraws only what changed. Two references: `components/content-board.tsx` + `lib/content-load.ts` + `GET /api/content`; `components/video-staged.tsx` + `lib/video-staged-load.ts`. For a single state, `components/video-status-poller.tsx` asks `GET /api/videos/:id/status` and refreshes once when it changes.
+- A new `<form action=... method="post">` or a `setInterval(router.refresh)` is a regression. `scripts-e2e/prod-forms-inplace.py` walks the screens as the canary and counts classic forms: it must print 0.
+
+### State on 2026-10-07
+
+Every screen is migrated: no classic form is left. `AutoRefresh` (layout, 30 s) still brings news to the screens without their own GET (`dashboard`, `leads`, `activity`, `calling`, `engagement`, `distribution`, `templates`, `admin`); `content` and `videos/[id]` are in its `SELF_UPDATING` list and it leaves them alone. A screen leaves the timer by getting its own GET and joining that list; when the list covers all of them, delete the component.
+
+Checked live with the canary: `content` (date saved in place) and the absence of classic forms on every screen it can open. Not exercised live, because the canary is not admin and nothing that costs money or publishes is run as a test: the admin screens (`distribution`, `templates`, `admin/clients`, `calling/find`, `calling/settings`) and the paid or outward actions (revisions, generate, approve, send, video payments).
 
 ## Checks before pushing
 
