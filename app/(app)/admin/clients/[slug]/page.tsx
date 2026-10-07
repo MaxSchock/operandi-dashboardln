@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardBody, Badge, EmptyState } from "@/components/ui";
+import { ActionForm } from "@/components/action-form";
 
 export const dynamic = "force-dynamic";
 
@@ -20,12 +21,12 @@ export default async function AdminClientDetail({ params }: { params: Promise<{ 
           <p className="text-sm text-slate-500">Client overrides — operandi_admin only.</p>
         </div>
         <div className="flex gap-2">
-          <form action={`/api/admin/override/pause-autopilot?slug=${slug}`} method="post">
+          <ActionForm action={`/api/admin/override/pause-autopilot?slug=${slug}`} done="Autopilot paused.">
             <button className="rounded-md bg-red-100 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-200">Pause autopilot</button>
-          </form>
-          <form action={`/api/admin/override/force-topup?slug=${slug}`} method="post">
+          </ActionForm>
+          <ActionForm action={`/api/admin/override/force-topup?slug=${slug}`} working="Asking for a top-up..." done="Top-up started.">
             <button className="rounded-md bg-electric/10 px-3 py-1.5 text-xs font-medium text-electric hover:bg-electric/20">Force Apollo top-up</button>
-          </form>
+          </ActionForm>
         </div>
       </header>
 
@@ -42,9 +43,9 @@ export default async function AdminClientDetail({ params }: { params: Promise<{ 
                   <span className="flex items-center gap-3 text-xs text-slate-500">
                     α={Number(a.alpha).toFixed(2)} · β={Number(a.beta).toFixed(2)} · obs={a.observations}
                     {!a.active && <Badge tone="red">frozen</Badge>}
-                    <form action={`/api/admin/override/freeze-arm?id=${a.id}`} method="post">
+                    <ActionForm action={`/api/admin/override/freeze-arm?id=${a.id}`} done="Frozen.">
                       <button className="text-[11px] text-red-600 hover:underline">freeze</button>
-                    </form>
+                    </ActionForm>
                   </span>
                 </li>
               ))}

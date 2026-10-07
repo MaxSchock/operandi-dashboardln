@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, serviceRoleClient } from "@/lib/supabase/server";
+import { answer } from "@/lib/form-answer";
 
 const ALLOWED = new Set(["pause-autopilot", "freeze-arm", "force-topup", "cancel-action"]);
 
@@ -28,7 +29,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ action: st
       .update({ autopilot_tier: 0 }).eq("client_slug", slug).select("client_slug");
     if (r.error) return failed("pause-autopilot", r.error.message);
     if (!r.data?.length) return failed("pause-autopilot", `no client named ${slug}`);
-    return NextResponse.redirect(new URL(`/admin/clients/${slug}`, req.url));
+    return answer(req, new URL(`/admin/clients/${slug}`, req.url));
   }
 
   if (action === "freeze-arm") {
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ action: st
     }).eq("id", Number(id)).select("id");
     if (r.error) return failed("freeze-arm", r.error.message);
     if (!r.data?.length) return failed("freeze-arm", `no arm with id ${id}`);
-    return NextResponse.redirect(new URL(req.headers.get("referer") ?? "/admin", req.url));
+    return answer(req, new URL(req.headers.get("referer") ?? "/admin", req.url));
   }
 
   if (action === "force-topup") {
@@ -55,7 +56,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ action: st
     } catch (e) {
       return failed("force-topup", `strategist unreachable: ${String(e).slice(0, 120)}`);
     }
-    return NextResponse.redirect(new URL(`/admin/clients/${slug}`, req.url));
+    return answer(req, new URL(`/admin/clients/${slug}`, req.url));
   }
 
   if (action === "cancel-action") {
@@ -65,7 +66,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ action: st
       .update({ status: "cancelled" }).eq("id", Number(id)).select("id");
     if (r.error) return failed("cancel-action", r.error.message);
     if (!r.data?.length) return failed("cancel-action", `no action with id ${id}`);
-    return NextResponse.redirect(new URL(req.headers.get("referer") ?? "/admin", req.url));
+    return answer(req, new URL(req.headers.get("referer") ?? "/admin", req.url));
   }
 
   return NextResponse.json({ error: "unhandled" }, { status: 500 });
