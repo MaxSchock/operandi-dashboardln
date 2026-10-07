@@ -29,7 +29,9 @@ export type StagedShot = {
   duration_s: number;
   to_phone?: boolean;
   /** kind "clip": a stretch of the client's own clip, shown as it is (recipe "cut") or with
-   * its person replaced (recipe "swap") by a listed character or the person of a photo. */
+   * its person replaced (recipe "swap") by a listed character or the person of a photo, or
+   * made new (recipe "host"): that person films it as a new presenter, the screen of the
+   * clip laid over the picture. */
   source_ref?: string | null;
   source_start_s?: number | null;
   source_end_s?: number | null;
@@ -40,6 +42,8 @@ export type StagedShot = {
   /** kind "clip": the stretch said in another language (a new voice, the lips moved to it).
    * `of` is the heard text the translation was made from. */
   dub?: { lang: string; text: string; of: string } | null;
+  /** recipe "host": what the montage lays over the presenter (the engine works it out). */
+  overlays?: { type: "video" | "label"; box: Region; show: [number, number]; kind?: string; text?: string; items?: string[] }[] | null;
   /** Words shown on screen during the shot: a script of its own, read before anything is heard. */
   on_screen?: string | null;
   /** Second of the shot where the montage pushes in (a change of picture without filming). */
@@ -74,7 +78,20 @@ export type Board = {
   /** Per clip whose person is replaced: the people seen in it and which one is replaced
    * (index). With several people and no answer the script cannot be approved. */
   clip_people?: Record<string, { people: string[]; who: number | null; by?: string }>;
+  /** Per clip made with a new presenter: where its screen and its other people are, and
+   * whether the screen is shown while one of them covers it ("keep") or not ("remove"). */
+  clip_layout?: Record<string, { boxes?: unknown[]; people?: unknown[]; labels?: unknown[]; others?: "remove" | "keep" }>;
 };
+
+export const isHost = (s: StagedShot) => s.kind === "clip" && s.recipe === "host";
+/** A shot of the client's clip made with another person: one picture of that person for all of them. */
+export const personClip = (s: StagedShot) => s.kind === "clip" && (s.recipe === "swap" || s.recipe === "host");
+
+/** The clips made with a new presenter in which other people stand in front of the screen. */
+export function othersIn(b: Board): string[] {
+  return Object.entries(b.clip_layout ?? {}).filter(([ref, l]) => (l.people?.length ?? 0) > 0
+    && b.shots.some(s => isHost(s) && s.source_ref === ref)).map(([ref]) => ref);
+}
 
 /** The clips with several people where nobody said yet who is replaced. */
 export function whoMissing(b: Board, answers: Record<string, number | null> = {}): string[] {
@@ -138,7 +155,7 @@ export const CLIP_MAX_S = 15;
 export function shotsOfPerson(b: Board, n: number): number[] {
   const s = b.shots.find(x => x.n === n);
   if (s?.kind !== "clip") return [n];
-  return [n, ...b.shots.filter(x => x.n !== n && x.kind === "clip" && x.recipe === "swap" && x.person_from === n).map(x => x.n)];
+  return [n, ...b.shots.filter(x => x.n !== n && personClip(x) && x.person_from === n).map(x => x.n)];
 }
 
 export const STAGED_STATUSES = new Set([
@@ -217,7 +234,7 @@ export type ShotEdit = {
 
 /** A stretch of the client's clip whose words were heard in another language than the video's: it can be dubbed. */
 export const canDub = (s: StagedShot, lang: string | undefined) =>
-  s.kind === "clip" && s.text_by === "clip" && !!lang && !!s.source_lang && s.source_lang !== lang && !!LANG_NAMES[lang];
+  s.kind === "clip" && s.recipe !== "host" && s.text_by === "clip" && !!lang && !!s.source_lang && s.source_lang !== lang && !!LANG_NAMES[lang];
 
 export const LANG_NAMES: Record<string, string> = { de: "German", en: "English", fr: "French", nl: "Dutch", es: "Spanish" };
 
@@ -227,7 +244,8 @@ const onScreen = (v: unknown) => String(v ?? "").replace(/\s+/g, " ").trim().sli
 
 export function applyScriptEdits(board: Board, edits: ShotEdit[], endText: string | null | undefined,
                                  decisions: Record<string, string>,
-                                 who: Record<string, unknown> = {}, lang?: string): { board: Board; error?: string } {
+                                 who: Record<string, unknown> = {}, lang?: string,
+                                 others: Record<string, unknown> = {}): { board: Board; error?: string } {
   if (!edits.length) return { board, error: "the video needs at least one shot" };
   if (edits.length > 12) return { board, error: "at most 12 shots" };
   const by = new Map(board.shots.map(s => [s.n, s as StagedShot & Record<string, unknown>]));
@@ -258,7 +276,8 @@ export function applyScriptEdits(board: Board, edits: ShotEdit[], endText: strin
       }
       s.text = old.text; s.text_by = old.text_by;
       if (e.on_screen !== undefined) s.on_screen = onScreen(e.on_screen);
-      if (old.dub && e.dub_off) delete s.dub;
+      // A new presenter always speaks the video's language: that dubbing is not taken off.
+      if (old.dub && e.dub_off && old.recipe !== "host") delete s.dub;
       else if (old.dub && e.dub_text !== undefined) {
         // Emptied: the engine translates it again when it applies the script.
         s.dub = { ...old.dub, text: String(e.dub_text).trim().slice(0, 600) };
@@ -310,7 +329,13 @@ export function applyScriptEdits(board: Board, edits: ShotEdit[], endText: strin
       clip_people[ref] = { ...cp, who: v as number, by: "client" };
     }
   }
-  return { board: { ...board, shots, order, proposals, end_card, ...(board.clip_people ? { clip_people } : {}) } };
+  // The other people of a clip made with a new presenter: the engine lays the screen out again.
+  const clip_layout = { ...(board.clip_layout ?? {}) };
+  for (const [ref, v] of Object.entries(others)) {
+    if (clip_layout[ref] && (v === "keep" || v === "remove")) clip_layout[ref] = { ...clip_layout[ref], others: v };
+  }
+  return { board: { ...board, shots, order, proposals, end_card, ...(board.clip_people ? { clip_people } : {}),
+                    ...(board.clip_layout ? { clip_layout } : {}) } };
 }
 
 const JOINS = new Set(["cut", "dissolve", "fadewhite", "fadeblack"]);

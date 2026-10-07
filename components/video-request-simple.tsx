@@ -10,6 +10,8 @@ type LinkedPost = { id: string; label: string };
 // Same limit as MAX_REQUEST_CHARS in lib/videos.ts (server-only module).
 const MAX_CHARS = 2000;
 
+const fileId = (f: File) => `${f.name}-${f.size}`;
+
 /**
  * The client's video form: one field saying what should happen, the language
  * and optional files. The engine's agent picks the style, length, message,
@@ -38,6 +40,8 @@ export function VideoRequestSimple({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [files, setFiles] = useState<File[]>([]);
+  // What the client said a file is for; unsaid, the agent decides.
+  const [uses, setUses] = useState<Record<string, string>>({});
   const [fileWarning, setFileWarning] = useState<string | null>(null);
 
   const who = characters.length ? characters.join(" or ") : "someone from your team";
@@ -91,7 +95,7 @@ export function VideoRequestSimple({
         const conf = await fetch(`/api/videos/${id}/references/confirm`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ key: presData.key, use: "auto" }),
+          body: JSON.stringify({ key: presData.key, use: uses[fileId(f)] || "auto" }),
         });
         if (!conf.ok) throw new Error(`${f.name}: confirm failed`);
       }
@@ -176,6 +180,13 @@ export function VideoRequestSimple({
             {files.map((f, i) => (
               <li key={`${f.name}-${f.size}`} className="flex items-center gap-2">
                 <span className="truncate">{f.type.startsWith("video/") ? "🎞" : "🖼"} {f.name}</span>
+                <select value={uses[fileId(f)] ?? ""} onChange={e => setUses(u => ({ ...u, [fileId(f)]: e.target.value }))}
+                  className="rounded border bg-white px-1 py-0.5 text-[11px] text-slate-600" data-testid="file-use" aria-label={`What ${f.name} is for`}>
+                  <option value="">We decide what it is for</option>
+                  {f.type.startsWith("video/")
+                    ? <option value="swap">Remake this clip with another person</option>
+                    : <option value="person">The person who appears in the video</option>}
+                </select>
                 <button type="button" onClick={() => setFiles(prev => prev.filter((_, j) => j !== i))}
                   className="text-slate-400 hover:text-red-600">remove</button>
               </li>

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { serviceRoleClient } from "@/lib/supabase/server";
 import { resolveVideoActor, loadOwnedRequest, addEvent, heldFromClient, HELD_MESSAGE } from "@/lib/videos";
 import {
-  isStaged, boardOf, shotsInOrder, shotsOfPerson, enqueue, cleanRegion, applyScriptEdits, cleanMontage, whoMissing,
+  isStaged, boardOf, shotsInOrder, shotsOfPerson, enqueue, cleanRegion, applyScriptEdits, cleanMontage, whoMissing, personClip, isHost,
   type Board, type Montage, type ShotEdit, type Take,
   isDrawn,
 } from "@/lib/video-staged";
@@ -55,8 +55,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const rows = Array.isArray(body.shots) ? (body.shots as unknown[]).filter(x => x && typeof x === "object") as ShotEdit[] : [];
     const decisions = body.proposals && typeof body.proposals === "object" ? body.proposals as Record<string, string> : {};
     const who = body.clip_who && typeof body.clip_who === "object" ? body.clip_who as Record<string, unknown> : {};
+    const others = body.clip_others && typeof body.clip_others === "object" ? body.clip_others as Record<string, unknown> : {};
     const edited = applyScriptEdits(board, rows, typeof body.end_text === "string" ? body.end_text : undefined, decisions, who,
-      String((request.brief as { language?: string } | null)?.language ?? "").toLowerCase() || undefined);
+      String((request.brief as { language?: string } | null)?.language ?? "").toLowerCase() || undefined, others);
     if (edited.error) return bad(edited.error);
     if (body.approve === true && whoMissing(edited.board).length) {
       return bad("Several people appear in your clip: choose which of them is replaced, then approve.");
@@ -101,7 +102,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     if (!s) return bad("shot not found", 404);
     // A shot from the client's clip has one picture at most: the person who goes into it.
     if (isDrawn(s.kind)) return bad("this shot has no picture of its own");
-    if (s.kind === "clip" && (role !== "start" || s.recipe !== "swap" || (s.person_from ?? s.n) !== s.n)) {
+    if (s.kind === "clip" && (role !== "start" || !personClip(s) || (s.person_from ?? s.n) !== s.n)) {
       return bad("this shot has no picture of its own");
     }
     if (!paid(board.costs.image)) return bad(STALE, 409);
@@ -170,8 +171,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     if (!s) return bad("shot not found", 404);
     const c = board.costs.shots[String(s.n)] ?? { film: 0, lips: 0, voice: 0 };
     const onlyLips = body.what === "lips";
-    const isClip = s.kind === "clip";
-    if (isClip && onlyLips) return bad("a shot from your clip keeps its own lips");
+    // A new presenter is filmed like any other shot (a note says what to change); a stretch of the clip is not.
+    const isClip = s.kind === "clip" && !isHost(s);
+    if (s.kind === "clip" && onlyLips) return bad(isClip ? "a shot from your clip keeps its own lips" : "the presenter is filmed with the lips of the voice: film the shot again instead");
     const isText = isDrawn(s.kind);
     if (isText && onlyLips) return bad("a text card has no lips");
     // Only the new voice and its lips: the person already put into the clip is kept.

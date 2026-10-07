@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Card, CardHeader, CardBody, Badge } from "@/components/ui";
 import { PayDialog, type MonthSpend } from "@/components/video-pay";
 import { ChangeMarker } from "@/components/video-change-marker";
-import { shotsInOrder, whoMissing, CLIP_MAX_S, LANG_NAMES, TEXT_MAX_CHARS, canDub, isTextBoard, isDrawn, ON_SCREEN_MAX_CHARS, SAFE_ZONES, LAYOUTS, type Layout, type Safe, type Board, type Job, type Join, type Montage, type Region, type ShotEdit, type StagedShot } from "@/lib/video-staged";
+import { shotsInOrder, whoMissing, isHost, othersIn, CLIP_MAX_S, LANG_NAMES, TEXT_MAX_CHARS, canDub, isTextBoard, isDrawn, ON_SCREEN_MAX_CHARS, SAFE_ZONES, LAYOUTS, type Layout, type Safe, type Board, type Job, type Join, type Montage, type Region, type ShotEdit, type StagedShot } from "@/lib/video-staged";
 
 type Image = { id: string; n: number; role: "start" | "end"; version: number; status: string; notes: string | null; carried: boolean; url: string };
 type TakeView = {
@@ -178,7 +178,7 @@ function MarkDialog({ mark, spend, busy, onConfirm, onCancel }: {
 
 /* ---------- stage 0: the shot table ---------- */
 
-type Row = ShotEdit & { key: string; text_by?: string; locked?: boolean; duration_s?: number; clip?: string | null; how?: string | null; from?: string; to?: string; dub_lang?: string; can_dub?: boolean };
+type Row = ShotEdit & { key: string; host?: boolean; text_by?: string; locked?: boolean; duration_s?: number; clip?: string | null; how?: string | null; from?: string; to?: string; dub_lang?: string; can_dub?: boolean };
 
 /** A stretch of the client's clip: the player shows that part only. */
 function ClipStretch({ src, from, to }: { src?: string; from: number; to: number }) {
@@ -191,6 +191,8 @@ function ClipStretch({ src, from, to }: { src?: string; from: number; to: number
 const fileName = (name?: string | null) => (name ?? "").replace(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-/, "");
 
 function clipWords(s: StagedShot): string {
+  const person = s.person_ref ? `the person of ${fileName(s.person_ref)}` : s.character || "another person";
+  if (s.recipe === "host") return `made new: ${person} presents it in a room like the one in your clip, and the screen shown in your clip is laid over the picture`;
   return s.recipe === "swap"
     ? `with ${s.person_ref ? `the person of ${fileName(s.person_ref)}` : s.character || "another person"} in the place of the person in it`
     : "as it is";
@@ -202,7 +204,7 @@ function Script({ board, clips, pictures, lang, busy, call }: { board: Board; cl
     lips_where: s.lips?.where ?? (s.kind === "pantalla" ? "phone" : "face"), narration: s.narration ?? "", to_phone: !!s.to_phone,
     text_by: s.text_by, locked: s.kind === "clip", duration_s: s.duration_s, on_screen: s.on_screen ?? "",
     card_image: s.card?.image ?? "", card_points: (s.card?.points ?? []).join("\n"),
-    ...(s.kind === "clip" ? { clip: s.source_ref, how: clipWords(s), from: String(s.source_start_s ?? 0),
+    ...(s.kind === "clip" ? { clip: s.source_ref, how: clipWords(s), host: isHost(s), from: String(s.source_start_s ?? 0),
       to: String(s.source_end_s ?? Math.round(((s.source_start_s ?? 0) + s.duration_s) * 100) / 100),
       ...(s.dub ? { dub_lang: s.dub.lang, dub_text: s.dub.text, dub_off: false } : { can_dub: canDub(s, lang), dub_on: false }) } : {}),
   })));
@@ -213,6 +215,10 @@ function Script({ board, clips, pictures, lang, busy, call }: { board: Board; cl
     && board.shots.some(s => s.kind === "clip" && s.recipe === "swap" && s.source_ref === ref));
   const [who, setWho] = useState<Record<string, number | null>>(() => Object.fromEntries(several.map(([ref, cp]) => [ref, cp.who])));
   const unanswered = whoMissing(board, who);
+  // Clips made with a new presenter where somebody else stands in front of the screen.
+  const crowded = othersIn(board);
+  const [others, setOthers] = useState<Record<string, string>>(() => Object.fromEntries(crowded.map(ref => [ref, board.clip_layout?.[ref]?.others ?? "remove"])));
+  const hosted = board.shots.some(isHost);
   const added = useRef(0);
   const set = (i: number, patch: Partial<Row>) => setRows(r => r.map((x, j) => j === i ? { ...x, ...patch } : x));
   const move = (i: number, d: number) => setRows(r => {
@@ -224,8 +230,8 @@ function Script({ board, clips, pictures, lang, busy, call }: { board: Board; cl
     return (board.needs?.length ?? 0) * board.costs.image + shots + board.costs.music + board.costs.captions;
   }, [board]);
   const send = (approve: boolean) => call({
-    action: "script_save", approve, end_text: endText, proposals: decisions, clip_who: who,
-    shots: rows.map(({ key: _k, text_by: _t, locked: _l, duration_s: _d, clip: _c, how: _h, dub_lang: _g, can_dub: _cd, from, to, ...e }) =>
+    action: "script_save", approve, end_text: endText, proposals: decisions, clip_who: who, clip_others: others,
+    shots: rows.map(({ key: _k, host: _ho, text_by: _t, locked: _l, duration_s: _d, clip: _c, how: _h, dub_lang: _g, can_dub: _cd, from, to, ...e }) =>
       _l ? { ...e, from_s: Number(from), to_s: Number(to) } : e),
   });
   const open = board.proposals.filter(p => !p.applied);
@@ -234,6 +240,23 @@ function Script({ board, clips, pictures, lang, busy, call }: { board: Board; cl
     <Card>
       <CardHeader title="1 · Script, shot by shot" hint="Your words stay as you wrote them. Change any field, then save: lengths and prices are worked out again. Nothing here costs money." />
       <CardBody className="space-y-4">
+        {hosted && (
+          <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700" data-testid="host-note">
+            <p>Your clip shows a person and a screen. The person is made new: a presenter filmed from one picture, saying the words of your clip. The screen is cut out of your clip and laid over the picture, and the labels are drawn again in the video&apos;s language.</p>
+            <p className="text-slate-500">The screen comes from your clip as it is: use it only if you may show that recording.</p>
+            {crowded.map(ref => (
+              <div key={ref} className="space-y-1" data-testid="host-others">
+                <div className="font-medium">Another person appears in front of the screen in {fileName(ref)}.</div>
+                {([["remove", "Leave that person out: the screen is shown only where nobody covers it, and the presenter says that person's words"],
+                   ["keep", "Keep that person: the screen is shown with them in it"]] as const).map(([v, t]) => (
+                  <label key={v} className="flex items-center gap-2">
+                    <input type="radio" name={`others-${ref}`} checked={(others[ref] ?? "remove") === v} onChange={() => setOthers(o => ({ ...o, [ref]: v }))} data-testid={`host-others-${v}`} />
+                    {t}</label>
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
         {open.length > 0 && (
           <div className="space-y-2" data-testid="proposals">
             <div className="text-xs font-medium text-slate-700">Suggestions</div>
@@ -319,15 +342,16 @@ function Script({ board, clips, pictures, lang, busy, call }: { board: Board; cl
                 <div className="flex flex-wrap items-start gap-3 text-xs text-slate-600" data-testid="clip-row">
                   <ClipStretch src={r.clip ? clips[r.clip] : undefined} from={Number(r.from)} to={Number(r.to)} />
                   <div className="max-w-md space-y-2">
-                    <p>Your clip {fileName(r.clip)}, {r.how}. {r.dub_lang && !r.dub_off ? `Said in ${LANG_NAMES[r.dub_lang] ?? r.dub_lang} by a new voice, with the lips moved to it.` : "It keeps its own sound."}</p>
+                    <p>Your clip {fileName(r.clip)}, {r.how}. {r.host ? (r.dub_lang ? `The presenter says it in ${LANG_NAMES[r.dub_lang] ?? r.dub_lang}.` : "The presenter says the same words.")
+                      : r.dub_lang && !r.dub_off ? `Said in ${LANG_NAMES[r.dub_lang] ?? r.dub_lang} by a new voice, with the lips moved to it.` : "It keeps its own sound."}</p>
                     <p className="text-slate-500">{r.text_by === "clip" ? "Said in this part: " : ""}{r.text}</p>
                     {r.dub_lang && (
                       <div className="space-y-1" data-testid="clip-dub">
                         {!r.dub_off && <label className="block text-[11px] text-slate-500">In {LANG_NAMES[r.dub_lang] ?? r.dub_lang} (it has to fit into the same seconds; empty it to have it translated again)
                           <textarea rows={2} value={r.dub_text ?? ""} onChange={e => set(i, { dub_text: e.target.value })} className={`${input} block w-full`} data-testid="clip-dub-text" /></label>}
-                        <label className="flex items-center gap-1 text-[11px] text-slate-500">
+                        {!r.host && <label className="flex items-center gap-1 text-[11px] text-slate-500">
                           <input type="checkbox" checked={!!r.dub_off} onChange={e => set(i, { dub_off: e.target.checked })} data-testid="clip-dub-off" />
-                          Keep the original voice in this shot</label>
+                          Keep the original voice in this shot</label>}
                       </div>
                     )}
                     {r.can_dub && lang && (
@@ -432,7 +456,9 @@ function Images({ data, board, busy, call, pay, setMark, jobOf }: Common & { dat
                 <div className="flex flex-wrap items-start gap-3">
                   <ClipStretch src={s.source_ref ? data.clips[s.source_ref] : undefined} from={s.source_start_s ?? 0} to={s.source_end_s ?? (s.source_start_s ?? 0) + s.duration_s} />
                   <p className="max-w-sm text-[11px] text-slate-400">
-                    {s.recipe !== "swap" ? "This part of your clip goes into the video as it is: there is nothing to draw."
+                    {isHost(s) ? (roles.length ? "This part is filmed new with the presenter below, in a room like the one in your clip. The screen shown in your clip is laid over the picture in the montage."
+                        : `The same presenter as in shot ${shotLabel(board, s.person_from ?? s.n)}: that picture is used here too.`)
+                      : s.recipe !== "swap" ? "This part of your clip goes into the video as it is: there is nothing to draw."
                       : roles.length ? "This part of your clip, with the person below in the place of the person in it."
                       : `The same person as in shot ${shotLabel(board, s.person_from ?? s.n)}: that picture is used here too.`}
                   </p>
@@ -446,7 +472,7 @@ function Images({ data, board, busy, call, pay, setMark, jobOf }: Common & { dat
                 const current = list.find(i => i.status === "approved") ?? list[0];
                 return (
                   <div key={role} className="space-y-1">
-                    <div className="text-[11px] uppercase tracking-wide text-slate-400">{s.kind === "clip" ? "The person who goes into your clip" : role === "start" ? "First picture" : "Last picture"}</div>
+                    <div className="text-[11px] uppercase tracking-wide text-slate-400">{isHost(s) ? "The presenter of your video" : s.kind === "clip" ? "The person who goes into your clip" : role === "start" ? "First picture" : "Last picture"}</div>
                     <div className="flex flex-wrap gap-3">
                       {list.map(i => (
                         <figure key={i.id} className="w-32 space-y-1 text-[11px]" data-testid={`image-${s.n}-${role}-v${i.version}`}>
@@ -528,13 +554,16 @@ function ShotCard({ s, data, board, busy, call, pay, setMark, jobOf, price }: Co
     return { frame_s: Math.round(t * 100) / 100, src: frames[Math.min(frames.length - 1, Math.floor(t * 2))] };
   };
   const label = shotLabel(board, s.n);
-  const isClip = s.kind === "clip", swap = isClip && s.recipe === "swap", isText = isDrawn(s.kind);
+  // A new presenter is filmed like any shot; only a stretch taken from the clip is cut or has a person put into it.
+  const host = isHost(s);
+  const isClip = s.kind === "clip" && !host, swap = isClip && s.recipe === "swap", isText = isDrawn(s.kind);
   const dubbed = isClip && !!s.dub?.text;
+  const said = s.kind === "clip" && s.dub?.text ? s.dub.text : s.text;
   const dubLang = dubbed ? LANG_NAMES[s.dub!.lang] ?? s.dub!.lang : "";
   const dubPrice = Math.round(((board.costs.shots[String(s.n)]?.lips ?? 0) + (board.costs.shots[String(s.n)]?.voice ?? 0)) * 100) / 100;
   return (
     <div className="space-y-2 border-b pb-4 last:border-0" data-testid={`shot-${s.n}`}>
-      <div className="text-xs font-medium text-navy">Shot {label} <span className="font-normal text-slate-500">{s.speaker ? `${s.speaker}: ` : ""}{dubbed ? s.dub!.text : s.text}</span></div>
+      <div className="text-xs font-medium text-navy">Shot {label} <span className="font-normal text-slate-500">{s.speaker ? `${s.speaker}: ` : ""}{said}</span></div>
       {take && (
         <div className="flex flex-wrap items-start gap-4">
           <video ref={video} key={take.id} src={take.url} controls playsInline preload="metadata" className="w-44 rounded-md border bg-black" />
@@ -548,7 +577,7 @@ function ShotCard({ s, data, board, busy, call, pay, setMark, jobOf, price }: Co
               ))}
             </div>
             <div>{take.duration_s.toFixed(1)}s{take.notes ? ` · ${take.notes}` : ""}</div>
-            {take.lips && !take.lips.done && take.status !== "stale" && (
+            {take.lips && !host && !take.lips.done && take.status !== "stale" && (
               <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-amber-800">
                 The lips were not moved: the face that speaks could not be found safely{take.lips.reason ? ` (${take.lips.reason})` : ""}. Nothing was charged for them.
                 {take.frames.length > 0 && <button type="button" disabled={busy || !!job} className="ml-1 underline" data-testid="lips-mark"
@@ -585,11 +614,11 @@ function ShotCard({ s, data, board, busy, call, pay, setMark, jobOf, price }: Co
           </div>
         </div>
       )}
-      {job ? <p className="text-[11px] text-amber-700">{swap ? "The person is being put into your clip. This takes 10 to 20 minutes." : dubbed ? `Being cut from your clip and said in ${dubLang}. This takes a few minutes.` : isClip ? "Being cut from your clip." : isText ? "The text card is being made." : "Being filmed. A shot takes 3 to 15 minutes."}</p>
+      {job ? <p className="text-[11px] text-amber-700">{host ? "The presenter is being filmed saying this. This takes 5 to 15 minutes. The screen of your clip is laid over it in the montage." : swap ? "The person is being put into your clip. This takes 10 to 20 minutes." : dubbed ? `Being cut from your clip and said in ${dubLang}. This takes a few minutes.` : isClip ? "Being cut from your clip." : isText ? "The text card is being made." : "Being filmed. A shot takes 3 to 15 minutes."}</p>
         : (!take || list.every(t => t.status === "stale")) && (
           <button type="button" disabled={busy} className={`${btn} bg-navy text-white`} data-testid="shot-film"
-            onClick={() => pay(swap ? `Put the person into shot ${label}` : `Film shot ${label}`, price, { action: "film", shot: s.n, ...(list.length ? { note: "Filmed again from the picture approved now." } : {}) })}>
-            {swap ? `Put the person into this part of your clip${dubbed ? ` and say it in ${dubLang}` : ""} (${usd(price)})` : dubbed ? `Cut this part and say it in ${dubLang} (${usd(price)})` : isClip ? "Cut this part from your clip (free)" : isText ? "Make this text card (free)" : `Film this shot (${usd(price)})`}</button>
+            onClick={() => pay(swap ? `Put the person into shot ${label}` : host ? `Film the presenter of shot ${label}` : `Film shot ${label}`, price, { action: "film", shot: s.n, ...(list.length ? { note: "Filmed again from the picture approved now." } : {}) })}>
+            {host ? `Film the presenter saying this (${usd(price)})` : swap ? `Put the person into this part of your clip${dubbed ? ` and say it in ${dubLang}` : ""} (${usd(price)})` : dubbed ? `Cut this part and say it in ${dubLang} (${usd(price)})` : isClip ? "Cut this part from your clip (free)" : isText ? "Make this text card (free)" : `Film this shot (${usd(price)})`}</button>
         )}
     </div>
   );

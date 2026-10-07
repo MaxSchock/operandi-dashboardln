@@ -51,6 +51,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const needs: Record<string, "video" | "image" | "audio"> = {
     screen_clip: "video", footage: "video", example: "video",
     screen: "image", logo: "image", look: "image", as_is: "image", line: "audio",
+    person: "image", swap: "video",
   };
   const got = isVideo ? "video" : isAudio ? "audio" : "image";
   if (needs[use] && needs[use] !== got) {
@@ -69,7 +70,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     kind = "logo";
     meta = { use: "logo" };
   } else {
-    const allowed = isVideo ? ["footage", "example", "screen_clip"] : ["look", "as_is", "screen"];
+    // "person" and "swap": the photo of who appears and the clip remade with them (videos made step by step).
+    const allowed = isVideo ? ["footage", "example", "screen_clip", "swap"] : ["look", "as_is", "screen", "person"];
     kind = isVideo ? "reference_video" : "reference_image";
     // "auto" (one-field form): the engine's agent decides what the file is
     // for from the client's text; until then it behaves like before.
