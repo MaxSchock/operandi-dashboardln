@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, serviceRoleClient } from "@/lib/supabase/server";
+import { answer } from "@/lib/form-answer";
 
 /** Pull the machine reason out of the strategist's FastAPI 409 body ({"detail": "..."}). */
 function _reason(body: string): string {
@@ -81,7 +82,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     if (!upd.data?.length) {
       return NextResponse.json({ error: "this proposal is no longer pending, your text was not saved" }, { status: 409 });
     }
-    return NextResponse.redirect(back);
+    return answer(req, back);
   }
 
   if (action === "approve" || action === "reject" || action === "connect") {
@@ -106,11 +107,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       const detail = await res.text().catch(() => "");
       if (res.status === 409) {
         back.searchParams.set("notice", _reason(detail));
-        return NextResponse.redirect(back);
+        return answer(req, back);
       }
       return NextResponse.json({ error: `strategist ${action} failed: ${res.status} ${detail.slice(0, 300)}` }, { status: 502 });
     }
-    return NextResponse.redirect(back);
+    return answer(req, back);
   }
 
   return NextResponse.json({ error: "unknown action" }, { status: 400 });

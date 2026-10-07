@@ -3,6 +3,7 @@ import { Card, CardHeader, CardBody, Badge, EmptyState } from "@/components/ui";
 import { getClientScope } from "@/lib/scope";
 import { getTier } from "@/lib/tier";
 import { LockedPanel } from "@/components/locked-panel";
+import { ActionForm } from "@/components/action-form";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -252,7 +253,7 @@ function ProposalCard({ p, canOperate, editable }: { p: ProposalRow; canOperate:
       )}
 
       {editable && canOperate ? (
-        <form action={`/api/admin/dm-proposal/${p.id}?action=save`} method="post" className="mt-3">
+        <ActionForm action={`/api/admin/dm-proposal/${p.id}?action=save`} className="mt-3" done="Text saved.">
           <textarea
             name="proposed_text"
             defaultValue={p.proposed_text}
@@ -264,30 +265,30 @@ function ProposalCard({ p, canOperate, editable }: { p: ProposalRow; canOperate:
               Save text
             </button>
           </div>
-        </form>
+        </ActionForm>
       ) : (
         <pre className="mt-3 whitespace-pre-wrap rounded-md bg-slate-50 p-3 text-xs leading-5 text-slate-700">{p.proposed_text}</pre>
       )}
 
       {editable && canOperate && (
         <div className="mt-2 flex flex-wrap items-center gap-2 border-t pt-3">
-          <form action={`/api/admin/dm-proposal/${p.id}?action=approve`} method="post">
+          <ActionForm action={`/api/admin/dm-proposal/${p.id}?action=approve`} working="Sending..." said={REASON_COPY}>
             <button className="rounded-md bg-electric px-3 py-1 text-xs font-medium text-white hover:opacity-90">
               Approve &amp; send
             </button>
-          </form>
+          </ActionForm>
           {!connected && (
-            <form action={`/api/admin/dm-proposal/${p.id}?action=connect`} method="post">
+            <ActionForm action={`/api/admin/dm-proposal/${p.id}?action=connect`} working="Sending..." said={REASON_COPY}>
               <button className="rounded-md border border-electric px-3 py-1 text-xs font-medium text-electric hover:bg-electric/5">
                 Send connection request
               </button>
-            </form>
+            </ActionForm>
           )}
-          <form action={`/api/admin/dm-proposal/${p.id}?action=reject`} method="post">
+          <ActionForm action={`/api/admin/dm-proposal/${p.id}?action=reject`}>
             <button className="rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200">
               Reject
             </button>
-          </form>
+          </ActionForm>
           <span className="ml-auto text-[10px] text-slate-400">Save text first, then approve.</span>
         </div>
       )}
