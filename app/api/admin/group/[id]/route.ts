@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, serviceRoleClient } from "@/lib/supabase/server";
+import { answer } from "@/lib/form-answer";
 
 /**
  * POST /api/admin/group/:id?action=approve|reject|candidate|reset
@@ -65,8 +66,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     let reason = detail;
     try { reason = JSON.parse(detail).detail ?? detail; } catch { /* keep raw */ }
     back.searchParams.set("actionError", String(reason).slice(0, 220));
-    return NextResponse.redirect(back, 303);
+    return answer(req, back);
   }
   back.searchParams.delete("actionError");
-  return NextResponse.redirect(back, 303);
+  return answer(req, back);
 }

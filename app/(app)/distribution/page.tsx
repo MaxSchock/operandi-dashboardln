@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardBody, Badge, EmptyState } from "@/components/ui";
 import { getClientScope } from "@/lib/scope";
 import { getTier } from "@/lib/tier";
+import { ActionForm } from "@/components/action-form";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -154,14 +155,14 @@ function GroupRowItem({ g }: { g: GroupRow }) {
         {g.relevance_reason && <p className="mt-0.5 text-xs leading-5 text-slate-500">{g.relevance_reason}</p>}
         <div className="mt-2 flex items-center gap-2">
           {canApprove && (
-            <form action={`/api/admin/group/${g.group_row_id}?action=approve`} method="post">
+            <ActionForm action={`/api/admin/group/${g.group_row_id}?action=approve`}>
               <button className="rounded-md bg-electric px-3 py-1 text-xs font-medium text-white hover:opacity-90">Approve</button>
-            </form>
+            </ActionForm>
           )}
           {canReject && (
-            <form action={`/api/admin/group/${g.group_row_id}?action=reject`} method="post">
+            <ActionForm action={`/api/admin/group/${g.group_row_id}?action=reject`}>
               <button className="rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200">Discard</button>
-            </form>
+            </ActionForm>
           )}
         </div>
       </div>
@@ -200,28 +201,28 @@ function QueueCard({ q }: { q: QueueRow }) {
         </div>
       </div>
 
-      <form action={`/api/admin/group-post/${q.queue_row_id}?action=edit`} method="post" className="mt-3">
+      <ActionForm action={`/api/admin/group-post/${q.queue_row_id}?action=edit`} className="mt-3" done="Text saved.">
         <textarea name="variant_text" defaultValue={q.variant_text ?? ""} rows={6}
           className="w-full rounded-md border bg-slate-50 p-3 text-xs leading-5 text-slate-700" />
         <div className="mt-2">
           <button className="rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200">Save text</button>
         </div>
-      </form>
+      </ActionForm>
 
       <div className="mt-2 flex flex-wrap items-center gap-2 border-t pt-3">
         {q.status === "proposed" && (
-          <form action={`/api/admin/group-post/${q.queue_row_id}?action=approve`} method="post">
+          <ActionForm action={`/api/admin/group-post/${q.queue_row_id}?action=approve`}>
             <button className="rounded-md bg-electric px-3 py-1 text-xs font-medium text-white hover:opacity-90">Approve</button>
-          </form>
+          </ActionForm>
         )}
         {q.status === "approved" && (
-          <form action={`/api/admin/group-post/${q.queue_row_id}?action=mark-sent`} method="post">
+          <ActionForm action={`/api/admin/group-post/${q.queue_row_id}?action=mark-sent`}>
             <button className="rounded-md bg-green-600 px-3 py-1 text-xs font-medium text-white hover:opacity-90">Mark sent</button>
-          </form>
+          </ActionForm>
         )}
-        <form action={`/api/admin/group-post/${q.queue_row_id}?action=reject`} method="post">
+        <ActionForm action={`/api/admin/group-post/${q.queue_row_id}?action=reject`}>
           <button className="rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200">Reject</button>
-        </form>
+        </ActionForm>
         {q.status === "approved" && (
           <span className="ml-auto text-[10px] text-slate-400">Publish it in the group, then mark sent.</span>
         )}
