@@ -1,11 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serviceRoleClient } from "@/lib/supabase/server";
 import { resolveVideoActor, loadOwnedRequest, addEvent, heldFromClient, HELD_MESSAGE } from "@/lib/videos";
+import { loadStaged, type Row as StagedRow } from "@/lib/video-staged-load";
 import {
   isStaged, boardOf, shotsInOrder, shotsOfPerson, enqueue, cleanRegion, applyScriptEdits, cleanMontage, whoMissing, personClip, isHost,
   type Board, type Montage, type ShotEdit, type Take,
   isDrawn,
 } from "@/lib/video-staged";
+
+/**
+ * GET /api/videos/:id/staged — what the step-by-step page shows, as data. The
+ * page polls it while a job runs and redraws only what changed, instead of
+ * loading the whole page again every few seconds (Max, 2026-10-07).
+ */
+export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const { actor, error, status } = await resolveVideoActor();
+  if (!actor) return NextResponse.json({ error }, { status });
+  const { id } = await ctx.params;
+  const request = await loadOwnedRequest(id, actor);
+  if (!request || !isStaged(request)) return NextResponse.json({ error: "not found" }, { status: 404 });
+  const data = await loadStaged(request as unknown as StagedRow, actor.tier.isAdmin);
+  return NextResponse.json(data, { headers: { "cache-control": "no-store" } });
+}
 
 /**
  * POST /api/videos/:id/staged — every action of the step-by-step flow.

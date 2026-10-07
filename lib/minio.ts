@@ -29,9 +29,14 @@ export async function presignPut(key: string, mime: string, expiresSeconds = 900
   });
 }
 
+/** A read link that is the SAME string for the whole clock hour: signed as of
+ * the top of the hour, valid for that hour plus `expiresSeconds`. A page that
+ * re-renders (the auto refresh, a poll) hands the browser the same src, so a
+ * <video> keeps playing instead of loading again (Max, 2026-10-07). */
 export async function presignGet(key: string, expiresSeconds = 3600) {
+  const hour = new Date(Math.floor(Date.now() / 3_600_000) * 3_600_000);
   return getSignedUrl(client(), new GetObjectCommand({ Bucket: BUCKET, Key: key }), {
-    expiresIn: expiresSeconds,
+    expiresIn: expiresSeconds + 3600, signingDate: hour,
   });
 }
 

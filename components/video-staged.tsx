@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Card, CardHeader, CardBody, Badge } from "@/components/ui";
 import { PayDialog, type MonthSpend } from "@/components/video-pay";
@@ -32,24 +33,60 @@ const ORDER = ["draft", "script_pending", "script_ready", "script_approved", "im
 const btn = "rounded-md px-3 py-1.5 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40";
 const input = "w-full rounded-md border bg-white px-2 py-1 text-xs";
 
+/** Something is being made: a turning wheel and what it is, inline or, with
+ * `box`, in the place the result will take. */
+function Working({ text, box }: { text: string; box?: boolean }) {
+  return (
+    <div role="status" aria-live="polite" data-testid="working"
+      className={`flex items-center gap-2 text-[11px] text-amber-700 ${box ? "h-40 w-44 justify-center rounded-md border border-dashed border-amber-300 bg-amber-50 px-3 text-center" : ""}`}>
+      <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
+      <span>{text}</span>
+    </div>
+  );
+}
+
 type Ask = { title: string; price: number; body: Record<string, unknown> };
 type Mark = { title: string; src: string; price: number; body: Record<string, unknown>; needNote: boolean; needRegion?: boolean };
 
-export function VideoStaged({ data }: { data: StagedData }) {
+export function VideoStaged({ data: served }: { data: StagedData }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ask, setAsk] = useState<Ask | null>(null);
   const [mark, setMark] = useState<Mark | null>(null);
+  // What is shown: the server's render first, then whatever the poll below
+  // brings. The server render arrives again after an action or the page's
+  // own refresh and is the truth then.
+  const [data, setData] = useState(served);
+  useEffect(() => { setData(served); }, [served]);
   const { board, status } = data;
   const active = data.jobs.filter(j => j.status === "queued" || j.status === "running");
   const waiting = active.length > 0 || status === "script_pending" || status === "assembling";
 
+  // While something is being made, ask for the data in the background and
+  // redraw only what changed: a <video> that is playing keeps playing, the new
+  // take appears in its shot when it is there. Loading the whole page every
+  // few seconds restarted every player (Max, 2026-10-07).
   useEffect(() => {
     if (!waiting) return;
-    const t = setInterval(() => router.refresh(), 5000);
-    return () => clearInterval(t);
-  }, [waiting, router]);
+    let gone = false;
+    const tick = async () => {
+      try {
+        const res = await fetch(`/api/videos/${data.id}/staged`, { cache: "no-store" });
+        if (!res.ok || gone) return;
+        const fresh = await res.json() as StagedData;
+        if (gone) return;
+        setData(prev => {
+          if (JSON.stringify(prev) === JSON.stringify(fresh)) return prev;
+          // The page's own header (badge, events) follows a change of state.
+          if (prev.status !== fresh.status) router.refresh();
+          return fresh;
+        });
+      } catch { /* the next tick asks again */ }
+    };
+    const t = setInterval(tick, 5000);
+    return () => { gone = true; clearInterval(t); };
+  }, [waiting, data.id, router]);
 
   async function call(body: Record<string, unknown>): Promise<boolean> {
     setBusy(true); setError(null);
@@ -82,8 +119,9 @@ export function VideoStaged({ data }: { data: StagedData }) {
       )}
       {error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700" data-testid="staged-error">{error}</div>}
       {active.length > 0 && (
-        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800" data-testid="staged-working">
-          {active.map(j => `${JOB_LABEL[j.kind] ?? j.kind}${j.shot_n ? ` (shot ${shotLabel(board, j.shot_n)})` : ""}`).join(" · ")}. This page refreshes itself.
+        <div className="flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800" data-testid="staged-working">
+          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
+          <span>{active.map(j => `${JOB_LABEL[j.kind] ?? j.kind}${j.shot_n ? ` (shot ${shotLabel(board, j.shot_n)})` : ""}`).join(" · ")}. It appears below when it is ready; you can keep watching the takes meanwhile.</span>
         </div>
       )}
       {failed.length > 0 && (
@@ -485,7 +523,7 @@ function Images({ data, board, busy, call, pay, setMark, jobOf }: Common & { dat
                         </figure>
                       ))}
                     </div>
-                    {job ? <p className="text-[11px] text-amber-700">Being drawn...</p>
+                    {job ? <Working text="Being drawn..." />
                       : !current ? <button type="button" disabled={busy} className={`${btn} bg-navy text-white`} data-testid="image-draw"
                           onClick={() => pay(s.kind === "clip" ? `Draw the person for shot ${shotLabel(board, s.n)}` : `Draw the ${role === "start" ? "first" : "last"} picture of shot ${shotLabel(board, s.n)}`, price, { action: "draw", shot: s.n, role })}>Draw this picture ({usd(price)})</button>
                       : !current.carried && <button type="button" disabled={busy} className={`${btn} border text-slate-700`} data-testid="image-change"
@@ -622,7 +660,7 @@ function ShotCard({ s, data, board, busy, call, pay, setMark, jobOf, price }: Co
           </div>
         </div>
       )}
-      {job ? <p className="text-[11px] text-amber-700">{host ? "The presenter is being filmed saying this. This takes 5 to 15 minutes. The screen of your clip is laid over it in the montage." : swap ? "The person is being put into your clip. This takes 10 to 20 minutes." : dubbed ? `Being cut from your clip and said in ${dubLang}. This takes a few minutes.` : isClip ? "Being cut from your clip." : isText ? "The text card is being made." : "Being filmed. A shot takes 3 to 15 minutes."}</p>
+      {job ? <Working box={!take} text={host ? "The presenter is being filmed saying this. This takes 5 to 15 minutes. The screen of your clip is laid over it in the montage." : swap ? "The person is being put into your clip. This takes 10 to 20 minutes." : dubbed ? `Being cut from your clip and said in ${dubLang}. This takes a few minutes.` : isClip ? "Being cut from your clip." : isText ? "The text card is being made." : "Being filmed. A shot takes 3 to 15 minutes."} />
         : (!take || list.every(t => t.status === "stale")) && (
           <button type="button" disabled={busy} className={`${btn} bg-navy text-white`} data-testid="shot-film"
             onClick={() => pay(swap ? `Put the person into shot ${label}` : host ? `Film the presenter of shot ${label}` : `Film shot ${label}`, price, { action: "film", shot: s.n, ...(list.length ? { note: "Filmed again from the picture approved now." } : {}) })}>
@@ -727,7 +765,7 @@ function MontagePanel({ data, board, busy, call, pay, jobOf }: Common & { data: 
               <label className="text-[11px] text-slate-500">Level on the closing card<input type="number" min={0} max={0.8} step={0.01} value={endLevel} onChange={e => setEndLevel(e.target.value)} className={input} /></label>
             </div>
             <input value={prompt} onChange={e => setPrompt(e.target.value)} placeholder="What the music should feel like (optional)" className={input} />
-            {jobOf("music") ? <p className="text-[11px] text-amber-700">Being composed...</p>
+            {jobOf("music") ? <Working text="Being composed..." />
               : <button type="button" disabled={busy} className={`${btn} border text-slate-700`} data-testid="music-new"
                   onClick={() => pay(m.music?.key ? "Compose another music track" : "Compose the music", board.costs.music, { action: "music", prompt })}>
                   {m.music?.key ? "Compose another track" : "Compose the music"} ({usd(board.costs.music)})</button>}
@@ -748,7 +786,7 @@ function MontagePanel({ data, board, busy, call, pay, jobOf }: Common & { data: 
               </label>
             )}
             <p className="text-[11px] text-slate-400">{timed ? "Timed to the voices. Change any wording below." : "Until they are timed to the voices, captions follow the script text spread evenly over each shot."}</p>
-            {jobOf("captions_stt") ? <p className="text-[11px] text-amber-700">Being timed...</p>
+            {jobOf("captions_stt") ? <Working text="Being timed..." />
               : !timed && <button type="button" disabled={busy} className={`${btn} border text-slate-700`} data-testid="captions-time"
                   onClick={() => pay("Time the captions to the voices", board.costs.captions, { action: "captions" })}>Time them to the voices ({usd(board.costs.captions)})</button>}
             {shots.map((s, i) => (caps[String(s.n)]?.blocks ?? []).map((b, k) => (
