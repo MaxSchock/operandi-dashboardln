@@ -7,6 +7,7 @@ import { DateRangePicker } from "@/components/date-range-picker";
 import { resolveRange } from "@/lib/date-range";
 import { getClientScope } from "@/lib/scope";
 import { getTier } from "@/lib/tier";
+import { FilterForm } from "@/components/filter-form";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -70,7 +71,7 @@ export default async function ActivityPage({ searchParams }: { searchParams: Pro
       <Card>
         <CardHeader title="Filters" />
         <CardBody>
-          <form className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_1fr_5rem]">
+          <FilterForm className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_1fr_5rem]">
             <select name="type" defaultValue={typeFilter} className="rounded-md border px-3 py-2 text-sm">
               <option value="all">All event types</option>
               {allTypes.map(t => <option key={t} value={t}>{t.replace("_", " ")}</option>)}
@@ -82,7 +83,7 @@ export default async function ActivityPage({ searchParams }: { searchParams: Pro
             <button type="submit" className="rounded-md bg-electric px-3 py-2 text-sm font-medium text-white hover:opacity-90">
               Apply
             </button>
-          </form>
+          </FilterForm>
         </CardBody>
       </Card>
 

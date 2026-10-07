@@ -8,6 +8,7 @@ import { resolveRange } from "@/lib/date-range";
 import { getClientScope } from "@/lib/scope";
 import { getTier } from "@/lib/tier";
 import { LockedPanel } from "@/components/locked-panel";
+import { FilterForm } from "@/components/filter-form";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -104,7 +105,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
       <Card>
         <CardHeader title="Filters" />
         <CardBody>
-          <form className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_9rem_9rem_9rem_5rem]">
+          <FilterForm className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_9rem_9rem_9rem_5rem]">
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
@@ -129,7 +130,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Promis
             <button type="submit" className="rounded-md bg-electric px-3 py-2 text-sm font-medium text-white hover:opacity-90">
               Apply
             </button>
-          </form>
+          </FilterForm>
         </CardBody>
       </Card>
 
