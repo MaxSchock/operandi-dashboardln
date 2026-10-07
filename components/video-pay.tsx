@@ -1,6 +1,8 @@
 "use client";
 
 import { useRef, useState, type ReactNode } from "react";
+import { Loader2 } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
 
 export type MonthSpend = { cap_usd: number; spent_usd: number; pending_usd: number };
 
@@ -39,20 +41,44 @@ export function PayDialog({ title, price, about, spend, busy, onConfirm, onCance
   );
 }
 
-/** A plain form whose submit costs money: it only posts after the confirmation. */
+/** A form whose submit costs money: it only posts after the confirmation, with
+ * fetch, and the page then draws what changed instead of being loaded again. */
 export function PaidForm({ action, title, price, about, spend, free, className, children }: {
   /** This submit costs nothing (same button, cheaper path): post straight away. */
   free?: boolean; action: string; title: string; price: number | null; about?: boolean; spend: MonthSpend | null; className?: string; children: ReactNode;
 }) {
+  const router = useRouter();
+  const path = usePathname();
   const form = useRef<HTMLFormElement | null>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function send() {
+    if (busy || !form.current) return;
+    setBusy(true); setError(null);
+    try {
+      const res = await fetch(action, { method: "POST", headers: { accept: "application/json" }, body: new FormData(form.current) });
+      const d = await res.json().catch(() => ({})) as { error?: string; to?: string };
+      if (!res.ok) { setError(String(d.error ?? `failed (${res.status})`)); setOpen(false); return; }
+      setOpen(false);
+      // A new request (a regeneration) has its own page; everything else stays here.
+      if (d.to && d.to.split("?")[0] !== path) router.push(d.to); else router.refresh();
+    } catch {
+      setError("No connection. Try again in a moment."); setOpen(false);
+    } finally { setBusy(false); }
+  }
   return (
-    <form ref={form} action={action} method="post" className={className}
-      onSubmit={e => { if (!busy && !free) { e.preventDefault(); if (form.current?.reportValidity()) setOpen(true); } }}>
+    <form ref={form} className={className} aria-busy={busy}
+      onSubmit={e => { e.preventDefault(); if (busy) return; if (free) void send(); else if (form.current?.reportValidity()) setOpen(true); }}>
       {children}
+      {busy && !open && (
+        <span role="status" aria-live="polite" data-testid="working" className="mt-1 flex items-center gap-1 text-[11px] text-amber-700">
+          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />Starting...
+        </span>
+      )}
+      {error && <span role="alert" data-testid="form-error" className="mt-1 block text-[11px] text-red-700">That didn&apos;t work: {error}</span>}
       {open && <PayDialog title={title} price={price} about={about} spend={spend} busy={busy}
-        onCancel={() => setOpen(false)} onConfirm={() => { setBusy(true); form.current?.submit(); }} />}
+        onCancel={() => setOpen(false)} onConfirm={send} />}
     </form>
   );
 }

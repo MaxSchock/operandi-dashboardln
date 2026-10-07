@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serviceRoleClient } from "@/lib/supabase/server";
 import { resolveVideoActor, loadOwnedRequest, addEvent, isHeld } from "@/lib/videos";
+import { answer } from "@/lib/form-answer";
 
 /**
  * POST /api/videos/:id/release — an admin lets a held video through to the
@@ -34,5 +35,5 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
   const ct = req.headers.get("content-type") ?? "";
   if (ct.includes("application/json")) return NextResponse.json({ ok: true });
-  return NextResponse.redirect(new URL(`/videos/${request.id}`, req.url), 303);
+  return answer(req, new URL(`/videos/${request.id}`, req.url));
 }

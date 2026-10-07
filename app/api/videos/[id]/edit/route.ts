@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serviceRoleClient } from "@/lib/supabase/server";
 import { resolveVideoActor, loadOwnedRequest, addEvent, heldFromClient, HELD_MESSAGE } from "@/lib/videos";
+import { answer } from "@/lib/form-answer";
 
 /**
  * POST /api/videos/:id/edit — free edit of a delivered video (typography,
@@ -37,5 +38,5 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   await addEvent(request.id, "edit_requested", actor, { notes });
 
   if (ct.includes("application/json")) return NextResponse.json({ ok: true });
-  return NextResponse.redirect(new URL(`/videos/${request.id}`, req.url), 303);
+  return answer(req, new URL(`/videos/${request.id}`, req.url));
 }

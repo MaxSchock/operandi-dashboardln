@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serviceRoleClient } from "@/lib/supabase/server";
 import { resolveVideoActor, loadOwnedRequest, addEvent, needsKeyframes, QUOTA_MESSAGES } from "@/lib/videos";
+import { answer } from "@/lib/form-answer";
 
 
 /**
@@ -52,7 +53,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     await addEvent(request.id, "storyboard_approved", actor, { credit: "at_keyframe_approval" });
     const ct = req.headers.get("content-type") ?? "";
     if (ct.includes("application/json")) return NextResponse.json({ ok: true, next: "keyframes" });
-    return NextResponse.redirect(new URL(`/videos/${request.id}`, req.url), 303);
+    return answer(req, new URL(`/videos/${request.id}`, req.url));
   }
   const { data: moved } = await svc.from("video_requests")
     .update({
@@ -82,5 +83,5 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   await addEvent(request.id, "storyboard_approved", actor);
   const ct = req.headers.get("content-type") ?? "";
   if (ct.includes("application/json")) return NextResponse.json({ ok: true });
-  return NextResponse.redirect(new URL(`/videos/${request.id}`, req.url), 303);
+  return answer(req, new URL(`/videos/${request.id}`, req.url));
 }

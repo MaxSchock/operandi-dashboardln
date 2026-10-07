@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serviceRoleClient } from "@/lib/supabase/server";
 import { resolveVideoActor, loadOwnedRequest, addEvent, heldFromClient, HELD_MESSAGE } from "@/lib/videos";
+import { answer } from "@/lib/form-answer";
 
 /**
  * POST /api/videos/:id/approve — final client approval of a delivered video.
@@ -33,5 +34,5 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
   const ct = req.headers.get("content-type") ?? "";
   if (ct.includes("application/json")) return NextResponse.json({ ok: true });
-  return NextResponse.redirect(new URL(`/videos/${request.id}`, req.url), 303);
+  return answer(req, new URL(`/videos/${request.id}`, req.url));
 }

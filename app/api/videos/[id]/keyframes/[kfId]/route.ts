@@ -3,6 +3,7 @@ import { serviceRoleClient } from "@/lib/supabase/server";
 import {
   resolveVideoActor, loadOwnedRequest, addEvent, wantsJson, clientRedraws, MAX_KEYFRAME_REDRAWS, type Keyframe,
 } from "@/lib/videos";
+import { answer } from "@/lib/form-answer";
 
 /**
  * POST /api/videos/:id/keyframes/:kfId — approve or reject one keyframe while
@@ -62,5 +63,5 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     shot: kf.shot_n, role: kf.role, version: kf.version, ...(notes ? { notes } : {}),
   });
   if (wantsJson(req)) return NextResponse.json({ ok: true });
-  return NextResponse.redirect(new URL(`/videos/${request.id}#keyframes`, req.url), 303);
+  return answer(req, new URL(`/videos/${request.id}#keyframes`, req.url));
 }

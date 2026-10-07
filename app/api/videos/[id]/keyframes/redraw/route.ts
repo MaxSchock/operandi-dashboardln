@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serviceRoleClient } from "@/lib/supabase/server";
 import { resolveVideoActor, loadOwnedRequest, addEvent, wantsJson, latestKeyframes, type Keyframe } from "@/lib/videos";
+import { answer } from "@/lib/form-answer";
 
 /**
  * POST /api/videos/:id/keyframes/redraw — send the images the client rejected
@@ -35,5 +36,5 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     images: rejected.map(k => ({ shot: k.shot_n, role: k.role, version: k.version })),
   });
   if (wantsJson(req)) return NextResponse.json({ ok: true });
-  return NextResponse.redirect(new URL(`/videos/${request.id}`, req.url), 303);
+  return answer(req, new URL(`/videos/${request.id}`, req.url));
 }

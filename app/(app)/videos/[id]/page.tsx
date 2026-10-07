@@ -13,6 +13,7 @@ import { SubmitDraft } from "@/components/video-submit-draft";
 import { MAX_SCENE_REDOS } from "@/lib/video-dialogue";
 import { StagedVideo } from "./staged";
 import { PaidForm } from "@/components/video-pay";
+import { ActionForm } from "@/components/action-form";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -129,7 +130,7 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
 
   return (
     <div className="space-y-6">
-      <VideoStatusPoller status={hidden ? "rendering" : r.status} />
+      <VideoStatusPoller id={r.id} status={hidden ? "rendering" : r.status} />
       <div>
         <Link href="/videos" className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700">
           <ArrowLeft className="h-3 w-3" /> Back to videos
@@ -155,7 +156,7 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
       {hidden && (
         <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
           Your video is produced and in its final check: we look at every video once more before you get it.
-          It appears here as soon as that is done. This page refreshes itself.
+          It appears here as soon as that is done. It appears here by itself.
         </div>
       )}
 
@@ -187,14 +188,14 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
               <p className="text-[11px] text-slate-400">Could not run: {(review.skipped ?? []).join(", ")}.</p>
             )}
             {held && (
-              <form action={`${act}/release`} method="post">
+              <ActionForm action={`${act}/release`}>
                 <button className="rounded-md bg-emerald-600 px-4 py-2 text-xs font-medium text-white hover:opacity-90">
                   Release to the client
                 </button>
                 <p className="mt-1 text-[11px] text-slate-400">
                   Or fix it first with the actions below (edit, redo a scene, regenerate): each new version is checked again.
                 </p>
-              </form>
+              </ActionForm>
             )}
           </CardBody>
         </Card>
@@ -228,10 +229,10 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
       {["queued", "rendering", "recomposing", "edit_requested", "redo_requested", "redoing"].includes(r.status) && (
         <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
           {r.status === "queued" || r.status === "rendering"
-            ? "In production: this usually takes 15-45 minutes. This page refreshes itself."
+            ? "In production: this usually takes 15-45 minutes. It appears here by itself."
             : r.status === "redo_requested" || r.status === "redoing"
-              ? "Redoing the scene: usually 5-15 minutes. The rest of the video is kept. This page refreshes itself."
-              : "Applying your edit: usually just a few minutes. This page refreshes itself."}
+              ? "Redoing the scene: usually 5-15 minutes. The rest of the video is kept. It appears here by itself."
+              : "Applying your edit: usually just a few minutes. It appears here by itself."}
         </div>
       )}
 
@@ -266,7 +267,7 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
           <CardHeader
             title="Images"
             hint={r.status === "keyframes_generating"
-              ? "being drawn, this page refreshes itself"
+              ? "being drawn, it appears here by itself"
               : "approve each image; production starts only when you approve them all"}
           />
           <CardBody className="space-y-4">
@@ -324,12 +325,12 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
                                   <div className="rounded-md bg-amber-50 p-2 text-[11px] text-amber-800">Change asked: {k.notes}</div>
                                 )}
                                 {k.status === "proposed" && (
-                                  <form action={`${act}/keyframes/${k.id}`} method="post">
+                                  <ActionForm action={`${act}/keyframes/${k.id}`}>
                                     <input type="hidden" name="action" value="approve" />
                                     <button className="w-full rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:opacity-90">
                                       Approve image
                                     </button>
-                                  </form>
+                                  </ActionForm>
                                 )}
                                 {k.status !== "rejected" && k.model !== "screen_preview" && (
                                   redrawsLeft > 0 ? (
@@ -337,7 +338,7 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
                                       <summary className="cursor-pointer text-[11px] font-medium text-slate-600 hover:text-slate-800">
                                         Ask for changes ({redrawsLeft} left)
                                       </summary>
-                                      <form action={`${act}/keyframes/${k.id}`} method="post" className="mt-1">
+                                      <ActionForm action={`${act}/keyframes/${k.id}`} className="mt-1">
                                         <input type="hidden" name="action" value="reject" />
                                         <textarea name="notes" rows={2} required maxLength={500}
                                           placeholder="e.g. She looks older than in real life; warmer light"
@@ -348,7 +349,7 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
                                         {k.role === "start" && kfLatest.some(o => o.shot_n === n && o.role === "end") && (
                                           <p className="mt-1 text-[11px] text-slate-400">The end image is redrawn too, so both match.</p>
                                         )}
-                                      </form>
+                                      </ActionForm>
                                     </details>
                                   ) : (
                                     <p className="text-[11px] text-slate-400">No redraws left for this image.</p>
@@ -365,12 +366,12 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
 
                 <div className="space-y-3 border-t pt-4">
                   {kfToRedraw > 0 && (
-                    <form action={`${act}/keyframes/redraw`} method="post">
+                    <ActionForm action={`${act}/keyframes/redraw`}>
                       <button className="rounded-md bg-amber-600 px-4 py-2 text-xs font-medium text-white hover:opacity-90">
                         Redraw {kfToRedraw} marked image{kfToRedraw === 1 ? "" : "s"}
                       </button>
                       <p className="mt-1 text-[11px] text-slate-400">Free. Approved images are kept.</p>
-                    </form>
+                    </ActionForm>
                   )}
                   <PaidForm action={`${act}/produce`} title="Start production" price={r.cost_estimated_usd} about spend={spend}>
                     <button disabled={!kfAllApproved}
@@ -403,7 +404,7 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
           title="Storyboard"
           hint={
             r.status === "storyboard_pending"
-              ? "being written, this page refreshes itself"
+              ? "being written, it appears here by itself"
               : r.status === "storyboard_ready"
                 ? "review and approve to start production"
                 : undefined
@@ -413,8 +414,8 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
           {!r.storyboard ? (
             <EmptyState title="Storyboard in progress"
               hint={choosing
-                ? "We are choosing the kind of video and writing the script: usually about 2 minutes. This page refreshes itself."
-                : "The draft usually takes about 2 minutes. This page refreshes itself."} />
+                ? "We are choosing the kind of video and writing the script: usually about 2 minutes. It appears here by itself."
+                : "The draft usually takes about 2 minutes. It appears here by itself."} />
           ) : (
             <>
               {byAgent && !choosing && (
@@ -483,14 +484,14 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
               </PaidForm>
               <details>
                 <summary className="cursor-pointer text-xs font-medium text-slate-600 hover:text-slate-800">Request changes (free)</summary>
-                <form action={`${act}/storyboard`} method="post" className="mt-2 max-w-lg">
+                <ActionForm action={`${act}/storyboard`} className="mt-2 max-w-lg">
                   <textarea name="notes" rows={3} required
                     placeholder={byAgent ? "e.g. Let the customer say it in their own words; or: make it scenes with a narrator instead" : "What should change in the script or shots?"}
                     className="w-full rounded-md border bg-white p-2 text-xs leading-5" />
                   <button className="mt-1 rounded-md bg-amber-500 px-3 py-1.5 text-xs font-medium text-white hover:opacity-90">
                     Send change request
                   </button>
-                </form>
+                </ActionForm>
               </details>
             </div>
           )}
@@ -502,25 +503,25 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
         <Card>
           <CardHeader title="What next?" />
           <CardBody className="space-y-4">
-            <form action={`${act}/approve`} method="post">
+            <ActionForm action={`${act}/approve`}>
               <button className="rounded-md bg-emerald-600 px-4 py-2 text-xs font-medium text-white hover:opacity-90">
                 Approve this video
               </button>
               <p className="mt-1 text-[11px] text-slate-400">Approval is required before anything is published.</p>
-            </form>
+            </ActionForm>
 
             <details>
               <summary className="cursor-pointer text-xs font-medium text-slate-600 hover:text-slate-800">
                 Request changes (free edit: text, music, subtitles, clip order)
               </summary>
-              <form action={`${act}/edit`} method="post" className="mt-2 max-w-lg">
+              <ActionForm action={`${act}/edit`} className="mt-2 max-w-lg">
                 <textarea name="notes" rows={3} required placeholder="e.g. Bigger captions, calmer music, swap shot 2 and 3"
                   className="w-full rounded-md border bg-white p-2 text-xs leading-5" />
                 <button className="mt-1 rounded-md bg-slate-700 px-3 py-1.5 text-xs font-medium text-white hover:opacity-90">
                   Request free edit
                 </button>
                 <p className="mt-1 text-[11px] text-slate-400">Free and unlimited. Does not use your regeneration.</p>
-              </form>
+              </ActionForm>
             </details>
 
             {isDialogue && (
