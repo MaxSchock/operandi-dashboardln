@@ -1,3 +1,4 @@
+import { VideoClose } from "@/components/video-close";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, Download } from "lucide-react";
@@ -70,7 +71,14 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
   const r = reqData as Req | null;
   if (!r) notFound();
   // Step-by-step videos have their own page: script, pictures, shots, montage.
-  if (r.brief?.flow === "staged") return <StagedVideo r={r as unknown as Parameters<typeof StagedVideo>[0]["r"]} isAdmin={tier.isAdmin} />;
+  if (r.brief?.flow === "staged") {
+    return (
+      <div className="space-y-6">
+        <StagedVideo r={r as unknown as Parameters<typeof StagedVideo>[0]["r"]} isAdmin={tier.isAdmin} />
+        <VideoClose id={r.id} closed={r.status === "closed"} isAdmin={tier.isAdmin} />
+      </div>
+    );
+  }
   const assets = (assetData ?? []) as Asset[];
   const allEvents = (evData ?? []) as Ev[];
   // The final check (video-engine app/review.py) can stop a delivery. Until an
@@ -597,6 +605,7 @@ export default async function VideoDetail({ params }: { params: Promise<{ id: st
           </CardBody>
         </Card>
       </section>
+      <VideoClose id={r.id} closed={r.status === "closed"} isAdmin={tier.isAdmin} />
     </div>
   );
 }

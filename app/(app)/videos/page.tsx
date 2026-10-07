@@ -1,11 +1,14 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { Clapperboard, Plus } from "lucide-react";
 import { createPublicClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardBody, Badge, EmptyState } from "@/components/ui";
 import { getTier } from "@/lib/tier";
 import { getClientScope } from "@/lib/scope";
 import { styleName, isHeld, type FinalReview } from "@/lib/videos";
+import { fmtWhen } from "@/lib/calling";
+import { TzCookie } from "@/components/tz-cookie";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -81,6 +84,36 @@ export default async function VideosPage() {
   if (tier.isAdmin && scope) q = q.eq("client_slug", scope);
   const { data } = await q;
   const rows = (data ?? []) as Row[];
+  const tz = decodeURIComponent((await cookies()).get("tz")?.value ?? "") || "Europe/London";
+  // Closed requests are out of the way: folded at the foot of the list.
+  const open = rows.filter(r => r.status !== "closed"), closed = rows.filter(r => r.status === "closed");
+  const item = (r: Row) => (
+    <li key={r.id} data-testid="video-row" data-status={r.status}>
+      <Link href={`/videos/${r.id}`} className="flex items-center justify-between gap-3 px-5 py-3 hover:bg-slate-50">
+        <div className="flex min-w-0 items-center gap-3">
+          <Clapperboard className="h-4 w-4 shrink-0 text-slate-400" />
+          <div className="min-w-0">
+            <div className="truncate text-sm font-medium text-slate-800">
+              {r.brief?.goal || "(no goal)"}
+            </div>
+            <div className="text-xs text-slate-500">
+              {r.brief?.style === "auto" ? "" : `${r.duration_s}s · `}{styleName(r.brief?.style)}
+              {r.regen_of ? " · regeneration" : ""}
+              {r.deliverable_version > 1 ? ` · v${r.deliverable_version}` : ""}
+              {tier.isAdmin && !scope ? ` · ${r.client_slug}` : ""}
+            </div>
+            <div className="text-[11px] text-slate-400" data-testid="video-row-when">
+              Created {fmtWhen(r.created_at, tz)}
+              {new Date(r.updated_at).getTime() - new Date(r.created_at).getTime() > 60000 ? ` · last change ${fmtWhen(r.updated_at, tz)}` : ""}
+            </div>
+          </div>
+        </div>
+        {isHeld(r)
+          ? <Badge tone={tier.isAdmin ? "red" : "amber"}>{tier.isAdmin ? "Held: needs your look" : "Final check"}</Badge>
+          : <Badge tone={STATUS_TONE[r.status] ?? "slate"}>{STATUS_LABEL[r.status] ?? r.status}</Badge>}
+      </Link>
+    </li>
+  );
 
   const weekStart = isoWeekStart(new Date());
   const usedThisWeek = rows.filter(r =>
@@ -92,6 +125,7 @@ export default async function VideosPage() {
 
   return (
     <div className="space-y-6">
+      <TzCookie />
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl text-navy">Videos</h1>
@@ -120,7 +154,7 @@ export default async function VideosPage() {
       </Card>
 
       <Card>
-        <CardHeader title="Your video requests" hint={`${rows.length} request${rows.length === 1 ? "" : "s"}`} />
+        <CardHeader title="Your video requests" hint={`${open.length} request${open.length === 1 ? "" : "s"}`} />
         <CardBody className="p-0">
           {rows.length === 0 ? (
             <EmptyState
@@ -129,29 +163,16 @@ export default async function VideosPage() {
             />
           ) : (
             <ul className="divide-y">
-              {rows.map(r => (
-                <li key={r.id}>
-                  <Link href={`/videos/${r.id}`} className="flex items-center justify-between gap-3 px-5 py-3 hover:bg-slate-50">
-                    <div className="flex min-w-0 items-center gap-3">
-                      <Clapperboard className="h-4 w-4 shrink-0 text-slate-400" />
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-medium text-slate-800">
-                          {r.brief?.goal || "(no goal)"}
-                        </div>
-                        <div className="text-xs text-slate-500">
-                          {r.brief?.style === "auto" ? "" : `${r.duration_s}s · `}{styleName(r.brief?.style)}
-                          {r.regen_of ? " · regeneration" : ""}
-                          {r.deliverable_version > 1 ? ` · v${r.deliverable_version}` : ""}
-                          {tier.isAdmin && !scope ? ` · ${r.client_slug}` : ""}
-                        </div>
-                      </div>
-                    </div>
-                    {isHeld(r)
-                      ? <Badge tone={tier.isAdmin ? "red" : "amber"}>{tier.isAdmin ? "Held: needs your look" : "Final check"}</Badge>
-                      : <Badge tone={STATUS_TONE[r.status] ?? "slate"}>{STATUS_LABEL[r.status] ?? r.status}</Badge>}
-                  </Link>
+              {open.map(item)}
+              {open.length === 0 && <li className="px-5 py-3 text-xs text-slate-500">No open requests.</li>}
+              {closed.length > 0 && (
+                <li>
+                  <details data-testid="videos-closed">
+                    <summary className="cursor-pointer px-5 py-3 text-xs text-slate-500 hover:bg-slate-50">Show closed ({closed.length})</summary>
+                    <ul className="divide-y border-t">{closed.map(item)}</ul>
+                  </details>
                 </li>
-              ))}
+              )}
             </ul>
           )}
         </CardBody>
