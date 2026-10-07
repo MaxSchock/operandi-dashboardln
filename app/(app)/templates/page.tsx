@@ -5,6 +5,7 @@ import { Card, CardHeader, CardBody, Badge, EmptyState } from "@/components/ui";
 import { labelFor } from "@/lib/template-labels";
 import { getClientScope } from "@/lib/scope";
 import { getTier } from "@/lib/tier";
+import { ActionForm } from "@/components/action-form";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -125,24 +126,24 @@ export default async function TemplatesPage() {
                           Edit body & variants
                         </Link>
                         {needsReview && (
-                          <form action={`/api/admin/template/${t.id}?action=approve`} method="post">
+                          <ActionForm action={`/api/admin/template/${t.id}?action=approve`}>
                             <button className="rounded-md bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-200">
                               Approve without changes
                             </button>
-                          </form>
+                          </ActionForm>
                         )}
                         {t.active ? (
-                          <form action={`/api/admin/template/${t.id}?action=deactivate`} method="post">
+                          <ActionForm action={`/api/admin/template/${t.id}?action=deactivate`}>
                             <button className="rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200">
                               Deactivate
                             </button>
-                          </form>
+                          </ActionForm>
                         ) : (
-                          <form action={`/api/admin/template/${t.id}?action=activate`} method="post">
+                          <ActionForm action={`/api/admin/template/${t.id}?action=activate`}>
                             <button className="rounded-md bg-electric/10 px-3 py-1 text-xs font-medium text-electric hover:bg-electric/20">
                               Activate
                             </button>
-                          </form>
+                          </ActionForm>
                         )}
                       </div>
                     )}

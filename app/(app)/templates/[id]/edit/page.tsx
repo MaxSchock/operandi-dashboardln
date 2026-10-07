@@ -4,6 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardBody, Badge } from "@/components/ui";
 import { labelFor } from "@/lib/template-labels";
+import { ActionForm } from "@/components/action-form";
 
 export const dynamic = "force-dynamic";
 
@@ -68,7 +69,7 @@ export default async function EditTemplate({ params }: { params: Promise<{ id: s
       <Card>
         <CardHeader title="Body & variants" hint="Saving will mark you as the approver." />
         <CardBody>
-          <form action={`/api/admin/template/${t.id}?action=save`} method="post" className="space-y-4">
+          <ActionForm action={`/api/admin/template/${t.id}?action=save`} className="space-y-4">
             <div>
               <label className="text-xs font-medium text-slate-700">Body</label>
               <p className="mt-0.5 text-[11px] text-slate-500">
@@ -125,7 +126,7 @@ export default async function EditTemplate({ params }: { params: Promise<{ id: s
                 Save & approve
               </button>
             </div>
-          </form>
+          </ActionForm>
         </CardBody>
       </Card>
 

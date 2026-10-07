@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, serviceRoleClient } from "@/lib/supabase/server";
+import { answer } from "@/lib/form-answer";
 
 /**
  * POST /api/admin/template/:id
@@ -30,7 +31,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       .eq("id", tid).select("id");
     if (upd.error) return NextResponse.json({ error: upd.error.message }, { status: 500 });
     if (!upd.data?.length) return NextResponse.json({ error: "template not found" }, { status: 404 });
-    return NextResponse.redirect(new URL(req.headers.get("referer") ?? "/templates", req.url));
+    return answer(req, new URL(req.headers.get("referer") ?? "/templates", req.url));
   }
 
   if (action === "deactivate" || action === "activate") {
@@ -38,7 +39,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       .update({ active: action === "activate" }).eq("id", tid).select("id");
     if (upd.error) return NextResponse.json({ error: upd.error.message }, { status: 500 });
     if (!upd.data?.length) return NextResponse.json({ error: "template not found" }, { status: 404 });
-    return NextResponse.redirect(new URL(req.headers.get("referer") ?? "/templates", req.url));
+    return answer(req, new URL(req.headers.get("referer") ?? "/templates", req.url));
   }
 
   if (action === "save") {
@@ -98,7 +99,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     if (upd.error) return NextResponse.json({ error: upd.error.message }, { status: 500 });
     if (!upd.data?.length) return NextResponse.json({ error: "template not found" }, { status: 404 });
 
-    return NextResponse.redirect(new URL("/templates", req.url));
+    return answer(req, new URL("/templates", req.url));
   }
 
   return NextResponse.json({ error: "unknown action" }, { status: 400 });

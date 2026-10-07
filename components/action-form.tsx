@@ -51,8 +51,13 @@ export function ActionForm({ action, className, children, reset, working = "Savi
       if (reset) form.reset();
       setNote(d.notice ? said?.[d.notice] ?? said?.[d.notice.split(":")[0]] ?? null : done ?? null);
       const here = `${path}${search.size ? `?${search}` : ""}`;
-      // The same page with what the route added to its address (a notice), or as it is.
-      startDrawing(() => { if (d.to && d.to !== here && d.to.split("?")[0] === path) router.replace(d.to, { scroll: false }); else router.refresh(); });
+      // This page as it is, this page with what the route added to its address (a
+      // notice), or the page the action leads to: none of them loads the document again.
+      startDrawing(() => {
+        if (!d.to || d.to === here) router.refresh();
+        else if (d.to.split("?")[0] === path) router.replace(d.to, { scroll: false });
+        else router.push(d.to);
+      });
     } catch {
       setError("No connection. Try again in a moment.");
     } finally { setBusy(false); }
