@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { PayDialog, type MonthSpend } from "@/components/video-pay";
 import { HEAR_USD, HEAR_MAX_VIDEOS } from "@/lib/video-staged";
-import { VideoRequestLaunch } from "@/components/video-request-launch";
 
 type LinkedPost = { id: string; label: string };
 
@@ -44,8 +43,6 @@ export function VideoRequestSimple({
   // What the client said a file is for; unsaid, the agent decides.
   const [uses, setUses] = useState<Record<string, string>>({});
   const [fileWarning, setFileWarning] = useState<string | null>(null);
-  // A product launch video is asked for with its own short form (a page address).
-  const [launch, setLaunch] = useState(false);
 
   const who = characters.length ? characters.join(" or ") : "someone from your team";
   const host = characters[0] ?? "our founder";
@@ -77,6 +74,7 @@ export function VideoRequestSimple({
           request: fd.get("request"),
           language: fd.get("language"),
           linked_post_id: fd.get("linked_post_id"),
+          product_url: fd.get("product_url") ?? "",
         }),
       });
       const data = await res.json();
@@ -116,19 +114,8 @@ export function VideoRequestSimple({
     }
   }
 
-  if (launch) return <VideoRequestLaunch onBack={() => setLaunch(false)} backLabel="Back to describing a video" />;
-
   return (
     <form onSubmit={onSubmit} className="space-y-4">
-      {staged && (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-          <span>Launching a product or a service? We turn its page into a short animated video.</span>
-          <button type="button" onClick={() => setLaunch(true)} data-testid="launch-open"
-            className="rounded-md border border-slate-300 bg-white px-2.5 py-1 font-medium text-slate-700 hover:bg-slate-100">
-            Product launch
-          </button>
-        </div>
-      )}
       <Field label="What should happen in the video?" required>
         <textarea name="request" required minLength={10} maxLength={MAX_CHARS} rows={6} placeholder={example}
           className="w-full rounded-md border bg-white px-2 py-1.5 text-sm leading-5" />
@@ -139,6 +126,17 @@ export function VideoRequestSimple({
           everything in the storyboard before anything is produced.
         </p>
       </Field>
+
+      {staged && (
+        <Field label="A web page of yours (optional)">
+          <input name="product_url" type="text" inputMode="url" maxLength={500} placeholder="https://www.yourcompany.com/product"
+            className="w-full rounded-md border bg-white px-2 py-1.5 text-sm" data-testid="request-page" />
+          <p className="mt-1 text-xs text-slate-500" data-testid="help-page">
+            We turn this page into animated scenes with its own text, colours and pictures. Without a page
+            there are no animated scenes: the video is made with people, your clips or text.
+          </p>
+        </Field>
+      )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field label="Language" required>
@@ -177,11 +175,13 @@ export function VideoRequestSimple({
           }}
           className="block w-full text-xs text-slate-600 file:mr-2 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-slate-700 hover:file:bg-slate-200"
         />
-        <p className="mt-1 text-xs text-slate-500">
-          Say in the text above what a file is for if it matters, for example &quot;the clip is only an example
-          of the pace, don&apos;t use it&quot;. To show your app on a phone, add a short clip of the phone in a
-          hand and a screenshot of the app.
-        </p>
+        <ul className="mt-1 space-y-0.5 text-xs text-slate-500" data-testid="help-files">
+          <li><span className="font-medium text-slate-600">A photo of a person:</span> they can present the video, talking to the camera.</li>
+          <li><span className="font-medium text-slate-600">A video of yours:</span> we cut the part that fits into the video, or remake it with another person.</li>
+          <li><span className="font-medium text-slate-600">A video you like as a model:</span> we copy its pace and its shots; nothing of it is shown.</li>
+          <li><span className="font-medium text-slate-600">A screenshot of your app or your logo:</span> shown exactly as it is.</li>
+        </ul>
+        <p className="mt-1 text-xs text-slate-500">Pick below what each file is for, or leave it to us.</p>
         {hearPrice > 0 && (
           <p className="mt-1 text-xs text-slate-600" data-testid="hear-price">
             We listen to your {hearPrice > HEAR_USD ? "clips" : "clip"} so the script uses the words really said in
@@ -198,8 +198,15 @@ export function VideoRequestSimple({
                   className="rounded border bg-white px-1 py-0.5 text-[11px] text-slate-600" data-testid="file-use" aria-label={`What ${f.name} is for`}>
                   <option value="">We decide what it is for</option>
                   {f.type.startsWith("video/")
-                    ? <option value="swap">Remake this clip with another person</option>
-                    : <option value="person">The person who appears in the video</option>}
+                    ? <>
+                        <option value="footage">Use this video in mine</option>
+                        <option value="swap">Remake this video with another person</option>
+                        <option value="example">Only a model: copy its pace and shots</option>
+                      </>
+                    : <>
+                        <option value="person">This person presents or appears in the video</option>
+                        <option value="as_is">Show this picture exactly as it is</option>
+                      </>}
                 </select>
                 <button type="button" onClick={() => { setFiles(prev => prev.filter((_, j) => j !== i)); setUses(({ [fileId(f)]: _gone, ...rest }) => rest); }}
                   className="text-slate-400 hover:text-red-600">remove</button>

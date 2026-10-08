@@ -224,3 +224,13 @@ const STYLE_NAMES: Record<string, string> = {
 export function styleName(style: unknown): string {
   return STYLE_NAMES[String(style ?? "")] ?? String(style ?? "?");
 }
+
+/** A web page typed by a person: "" when empty, the address with its scheme, or null when it is not one. */
+export function pageUrl(raw: unknown): string | null {
+  let url = String(raw ?? "").trim();
+  if (!url) return "";
+  if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+  let host = "";
+  try { host = new URL(url).hostname; } catch { return null; }
+  return host.includes(".") && url.length <= 500 ? url : null;
+}

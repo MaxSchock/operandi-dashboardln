@@ -68,6 +68,7 @@ export async function loadStaged(r: Row, isAdmin: boolean): Promise<StagedData> 
   const data: StagedData = {
     lang: String((r.brief as { language?: string } | null)?.language ?? "").toLowerCase() || undefined,
     id: r.id, status: r.status, isAdmin, error: r.error, held,
+    page: String((r.brief as { product_url?: string } | null)?.product_url ?? "") || undefined,
     board: boardOf(r), montage: (r.montage ?? {}) as Montage,
     spend: spend ? { cap_usd: Number(spend.cap_usd), spent_usd: Number(spend.spent_usd), pending_usd: Number(spend.pending_usd) } : null,
     images, takes, clips, pictures, jobs: (jb.data ?? []) as Job[], versions,

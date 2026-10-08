@@ -41,6 +41,8 @@ export type StagedShot = {
   person_ref?: string | null;
   /** recipe "host" with no clip behind: the presenter is a person of the client's product page. */
   from_site?: boolean;
+  /** recipe "host" with no clip behind: the presenter talks to the camera between the other shots. */
+  solo?: boolean;
   /** The shot that holds the picture of the new person (one picture for all their shots). */
   person_from?: number | null;
   /** kind "clip": the stretch said in another language (a new voice, the lips moved to it).
@@ -67,6 +69,8 @@ export type Proposal = {
 export type Advice = { type: string; shot_n: number | null; text: string };
 
 export type Board = {
+  /** A video with animated scenes of the client's page: the page, and who presents it (if anyone). */
+  launch?: { url?: string; presenter?: { from?: string; name?: string | null; file?: string } | null } | null;
   schema: number;
   shots: StagedShot[];
   order: number[];
@@ -271,7 +275,7 @@ export function applyScriptEdits(board: Board, edits: ShotEdit[], endText: strin
   const launchVideo = hasLaunch(board);
   for (const e of edits) {
     // In a product launch video every row but the presenter's is a scene.
-    const launchBoard = launchVideo && (e.n === null || by.get(e.n)?.kind !== "clip");
+    const launchBoard = launchVideo && (e.n === null ? e.kind === "launch" : by.get(e.n)?.kind === "launch");
     const text = launchBoard
       ? String(e.text ?? "").split("\n").map(l => l.replace(/\s+/g, " ").trim()).filter(Boolean).slice(0, 3).join("\n").slice(0, LAUNCH_MAX_CHARS)
       : String(e.text ?? "").trim().slice(0, textBoard ? TEXT_MAX_CHARS : 400);
@@ -281,7 +285,7 @@ export function applyScriptEdits(board: Board, edits: ShotEdit[], endText: strin
     const s = (old ? { ...old } : { n: next++, text_by: "client", link_edited: true }) as StagedShot & Record<string, unknown>;
     if (order.includes(s.n)) continue;
     if (old && old.text !== text) s.text_by = "client";
-    if (old && old.kind === "clip" && old.from_site) {
+    if (old && old.kind === "clip" && (old.solo || old.from_site)) {
       // A presenter taken from the product page: there is no clip behind, only the words said.
       const said = String(e.text ?? "").replace(/\s+/g, " ").trim().slice(0, HOST_SITE_MAX_CHARS) || old.text;
       if (said !== old.text) { s.text = said; s.text_by = "client"; } else { s.text = old.text; s.text_by = old.text_by; }

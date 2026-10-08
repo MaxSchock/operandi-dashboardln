@@ -17,13 +17,15 @@ export type StagedData = {
   id: string; status: string; isAdmin: boolean; error: string | null; held: boolean;
   /** The language of the video. */
   lang?: string;
+  /** The client's web page animated scenes can be drawn from, when the request has one. */
+  page?: string;
   board: Board | null; montage: Montage; spend: MonthSpend | null;
   images: Image[]; takes: TakeView[]; clips: Record<string, string>; pictures: string[]; jobs: Job[]; versions: { version: number; url: string }[];
   changes: { id: string; shot_n: number | null; target: string; note: string | null; region: Region | null; status: string; actor: string; created_at: string }[];
 };
 
 const usd = (v: number) => `$${v.toFixed(2)}`;
-const KIND_LABEL: Record<string, string> = { persona: "A person speaks", pantalla: "Speaks from a phone screen", silent: "No one speaks", ceo: "Presenter speaks", clip: "Your own clip", text: "Text on screen", motion: "Text with a picture or a list", launch: "Launch scene" };
+const KIND_LABEL: Record<string, string> = { persona: "A person speaks", pantalla: "Speaks from a phone screen", silent: "No one speaks", ceo: "Presenter speaks", clip: "Your own clip", text: "Text on screen", motion: "Text with a picture or a list", launch: "Animated scene from your page" };
 const JOIN_LABEL: Record<Join, string> = { cut: "Hard cut", dissolve: "Dissolve", fadewhite: "Fade through white", fadeblack: "Fade through black" };
 const JOB_LABEL: Record<string, string> = {
   script_propose: "Writing the shots", script_apply: "Updating the shots", image_draw: "Drawing a picture", shot_film: "Filming a shot",
@@ -131,7 +133,7 @@ export function VideoStaged({ data: served }: { data: StagedData }) {
       )}
       {!board && <Card><CardBody><p className="text-sm text-slate-600">The shots are being written. This takes about a minute.</p></CardBody></Card>}
 
-      {board && status === "script_ready" && <Script key={JSON.stringify(board.shots) + JSON.stringify(board.proposals) + JSON.stringify(board.clip_people ?? {})} board={board} clips={data.clips} pictures={data.pictures} lang={data.lang} busy={busy || !!jobOf("script_apply")} call={call} />}
+      {board && status === "script_ready" && <Script key={JSON.stringify(board.shots) + JSON.stringify(board.proposals) + JSON.stringify(board.clip_people ?? {})} board={board} clips={data.clips} pictures={data.pictures} lang={data.lang} id={data.id} page={data.page} busy={busy || !!jobOf("script_apply") || !!jobOf("script_propose")} call={call} />}
       {board && stage > 2 && <ScriptSummary board={board} />}
       {board && stage >= 3 && Object.entries(board.clip_people ?? {}).filter(([ref, cp]) => cp.people.length > 1
         && board.shots.some(s => s.kind === "clip" && s.recipe === "swap" && s.source_ref === ref)).map(([ref, cp]) => (
@@ -236,13 +238,81 @@ function clipWords(s: StagedShot): string {
     : "as it is";
 }
 
-function Script({ board, clips, pictures, lang, busy, call }: { board: Board; clips: Record<string, string>; pictures: string[]; lang?: string; busy: boolean; call: Common["call"] }) {
+/** What a shot is and where it comes from, in the client's words: the first line of its card. */
+function rowWords(r: Row, board: Board): string {
+  const p = board.launch?.presenter;
+  if (r.kind === "clip" && r.site) return `${r.speaker || (p?.from === "page" ? p?.name : null) || (p?.from === "photo" ? "The person in your photo" : "The presenter")} talks to the camera`;
+  if (r.kind === "clip" && r.host) return "A presenter says this part of your video, filmed new";
+  if (r.kind === "clip") return r.how && r.how !== "as it is" ? "Your video, with another person in it" : "Footage from your video";
+  if (r.kind === "launch") return "Animated scene with the text and pictures of your page";
+  if (r.kind === "text") return "Text on screen";
+  if (r.kind === "motion") return "Text with one of your pictures or a list";
+  if (r.kind === "silent") return "A scene without words, drawn new";
+  if (r.kind === "pantalla") return `${r.speaker || "A person"} speaks from your app on a phone`;
+  return `${r.speaker || "A person"} talks, drawn and filmed new`;
+}
+
+/** What this proposal could not use because it was not there, with the way to add it: a row of the script. */
+function Offers({ board, id, page, hasPresenter, busy, call }: { board: Board; id: string; page?: string; hasPresenter: boolean; busy: boolean; call: Common["call"] }) {
+  const [url, setUrl] = useState("");
+  const [state, setState] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const scenes = hasLaunch(board);
+  async function addPhoto(f: File) {
+    setError(null);
+    try {
+      setState("Uploading the photo...");
+      const pres = await fetch(`/api/videos/${id}/references/presign`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ filename: f.name, mime: f.type, size: f.size }) });
+      const pd = await pres.json();
+      if (!pres.ok) throw new Error(pd.error ?? "the photo could not be uploaded");
+      const put = await fetch(pd.url, { method: "PUT", headers: { "content-type": pd.mime ?? f.type }, body: f });
+      if (!put.ok) throw new Error("the photo could not be uploaded");
+      const conf = await fetch(`/api/videos/${id}/references/confirm`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: pd.key, use: "person" }) });
+      if (!conf.ok) throw new Error("the photo could not be saved");
+      setState("Asking for another proposal...");
+      await call({ action: "script_again", person_file: String(pd.key).split("/").pop() });
+    } catch (e) {
+      setError(String(e instanceof Error ? e.message : e));
+    } finally { setState(null); }
+  }
+  const box = "space-y-2 rounded-md border border-dashed border-slate-300 bg-slate-50 p-3 text-xs text-slate-600";
+  if (page && (!scenes || hasPresenter)) return null;
+  return (
+    <div className="space-y-3" data-testid="script-offers">
+      {!page && (
+        <div className={box} data-testid="offer-page">
+          <div className="font-medium text-slate-700">Not in this video: animated scenes of your web page</div>
+          <p>Without a link to a web page there are no animated scenes. Add one and ask for another proposal: the scenes use the page&apos;s own text, colours and pictures.</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <input value={url} onChange={e => setUrl(e.target.value)} inputMode="url" placeholder="https://www.yourcompany.com/product" className={`${input} min-w-0 flex-1`} data-testid="offer-page-url" />
+            <button type="button" disabled={busy || !!state || url.trim().length < 4} className={`${btn} border text-slate-700 disabled:opacity-50`} data-testid="offer-page-go"
+              onClick={async () => { setState("Asking for another proposal..."); await call({ action: "script_again", product_url: url }); setState(null); }}>
+              Ask for another proposal (free)</button>
+          </div>
+        </div>
+      )}
+      {scenes && !hasPresenter && (
+        <div className={box} data-testid="offer-presenter">
+          <div className="font-medium text-slate-700">Not in this video: a person who presents it</div>
+          <p>Nobody speaks in this video. Upload a photo of a person and they can open and close it talking to the camera (filming them is paid; you see the price first).</p>
+          <input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy || !!state} data-testid="offer-presenter-photo"
+            onChange={e => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void addPhoto(f); }}
+            className="block w-full text-xs text-slate-600 file:mr-2 file:rounded-md file:border-0 file:bg-white file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-slate-700" />
+        </div>
+      )}
+      {state && <Working text={state} />}
+      {error && <div className="text-xs text-red-700">{error}</div>}
+    </div>
+  );
+}
+
+function Script({ board, clips, pictures, lang, id, page, busy, call }: { board: Board; clips: Record<string, string>; pictures: string[]; lang?: string; id: string; page?: string; busy: boolean; call: Common["call"] }) {
   const [rows, setRows] = useState<Row[]>(() => shotsInOrder(board).map(s => ({
     key: `s${s.n}`, n: s.n, kind: s.kind, text: s.text, speaker: s.speaker, camera: s.camera ?? "", link: s.link,
     lips_where: s.lips?.where ?? (s.kind === "pantalla" ? "phone" : "face"), narration: s.narration ?? "", to_phone: !!s.to_phone,
     text_by: s.text_by, locked: s.kind === "clip", duration_s: s.duration_s, on_screen: s.on_screen ?? "",
     card_image: s.card?.image ?? "", card_points: (s.card?.points ?? []).join("\n"), shows: s.show?.shows ?? "",
-    ...(s.kind === "clip" ? { clip: s.source_ref, how: clipWords(s), host: isHost(s), site: !!s.from_site, from: String(s.source_start_s ?? 0),
+    ...(s.kind === "clip" ? { clip: s.source_ref, how: clipWords(s), host: isHost(s), site: isHost(s) && !s.source_ref, from: String(s.source_start_s ?? 0),
       to: String(s.source_end_s ?? Math.round(((s.source_start_s ?? 0) + s.duration_s) * 100) / 100),
       ...(s.dub ? { dub_lang: s.dub.lang, dub_text: s.dub.text, dub_off: false } : { can_dub: canDub(s, lang), dub_on: false }) } : {}),
   })));
@@ -256,7 +326,8 @@ function Script({ board, clips, pictures, lang, busy, call }: { board: Board; cl
   // Clips made with a new presenter where somebody else stands in front of the screen.
   const crowded = othersIn(board);
   const [others, setOthers] = useState<Record<string, string>>(() => Object.fromEntries(crowded.map(ref => [ref, board.clip_layout?.[ref]?.others ?? "remove"])));
-  const hosted = board.shots.some(isHost);
+  // Only where a presenter replaces the person of a clip: one who talks alone has no screen behind.
+  const hosted = board.shots.some(s => isHost(s) && !!s.source_ref);
   const added = useRef(0);
   const set = (i: number, patch: Partial<Row>) => setRows(r => r.map((x, j) => j === i ? { ...x, ...patch } : x));
   const move = (i: number, d: number) => setRows(r => {
@@ -347,8 +418,9 @@ function Script({ board, clips, pictures, lang, busy, call }: { board: Board; cl
           {rows.map((r, i) => (
             <div key={r.key} className="rounded-md border p-3" data-testid="shot-row">
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs">
-                <span className="font-medium text-navy">Shot {i + 1}{r.duration_s ? ` · ${r.duration_s.toFixed(1)}s` : " · new"}
-                  {r.n !== null && board.costs.shots[String(r.n)] ? ` · ${usd(Object.values(board.costs.shots[String(r.n)]).reduce((a, b) => a + b, 0))}` : ""}</span>
+                <span className="font-medium text-navy"><span data-testid="shot-what">{rowWords(r, board)}</span>
+                  <span className="font-normal text-slate-500"> · Shot {i + 1}{r.duration_s ? ` · ${r.duration_s.toFixed(1)}s` : " · new"}
+                  {r.n !== null && board.costs.shots[String(r.n)] ? (v => v > 0 ? ` · ${usd(v)}` : " · free")(Object.values(board.costs.shots[String(r.n)]).reduce((a, b) => a + b, 0)) : ""}</span></span>
                 <span className="flex gap-1">
                   <button type="button" className={`${btn} border`} disabled={i === 0} onClick={() => move(i, -1)} aria-label="Move up">↑</button>
                   <button type="button" className={`${btn} border`} disabled={i === rows.length - 1} onClick={() => move(i, 1)} aria-label="Move down">↓</button>
@@ -377,7 +449,7 @@ function Script({ board, clips, pictures, lang, busy, call }: { board: Board; cl
                 </label>
               )}
               {r.site ? (
-                <label className="block text-[11px] text-slate-500" data-testid="host-site-row">The presenter, a person shown on your page, says this to the camera (filmed new, paid; one short sentence)
+                <label className="block text-[11px] text-slate-500" data-testid="host-site-row">What they say (one short sentence; filmed new from their picture, paid)
                   <textarea rows={2} maxLength={HOST_SITE_MAX_CHARS} value={r.text ?? ""} onChange={e => set(i, { text: e.target.value })} className={`${input} leading-5`} data-testid="host-site-text" />
                 </label>
               ) : r.locked ? (
@@ -457,6 +529,7 @@ function Script({ board, clips, pictures, lang, busy, call }: { board: Board; cl
             onClick={() => setRows(r => [...r, { key: `new${added.current++}`, n: null, kind: hasLaunch(board) ? "launch" : isTextBoard(board) ? "text" : "persona", text: "", speaker: "", camera: "", link: "cut", lips_where: "face", narration: "" }])}>
             Add a shot
           </button>
+          <Offers board={board} id={id} page={page} hasPresenter={rows.some(r => r.host)} busy={busy} call={call} />
         </div>
         <label className="block text-[11px] text-slate-500">Text on the closing card (empty: no closing card)
           <textarea rows={2} value={endText} onChange={e => setEndText(e.target.value)} className={`${input} leading-5`} data-testid="end-text" />
@@ -501,13 +574,13 @@ function Images({ data, board, busy, call, pay, setMark, jobOf }: Common & { dat
           return (
             <div key={s.n} className="space-y-2 border-b pb-4 last:border-0" data-testid={`images-shot-${s.n}`}>
               <div className="text-xs font-medium text-navy">Shot {shotLabel(board, s.n)} <span className="font-normal text-slate-500">{s.speaker ? `${s.speaker}: ` : ""}{s.text}</span></div>
-              {s.kind === "clip" && s.from_site && (
+              {isHost(s) && !s.source_ref && (
                 <p className="max-w-sm text-[11px] text-slate-400">
-                  {roles.length ? "This part is filmed new: the person shown on your page, drawn again as the presenter below, says it to the camera."
+                  {roles.length ? "This part is filmed new: the person below says it to the camera. The picture is drawn from their photo so it fits a vertical video."
                     : `The same presenter as in shot ${shotLabel(board, s.person_from ?? s.n)}: that picture is used here too.`}
                 </p>
               )}
-              {s.kind === "clip" && !s.from_site && (
+              {s.kind === "clip" && !(isHost(s) && !s.source_ref) && (
                 <div className="flex flex-wrap items-start gap-3">
                   <ClipStretch src={s.source_ref ? data.clips[s.source_ref] : undefined} from={s.source_start_s ?? 0} to={s.source_end_s ?? (s.source_start_s ?? 0) + s.duration_s} />
                   <p className="max-w-sm text-[11px] text-slate-400">
@@ -682,7 +755,7 @@ function ShotCard({ s, data, board, busy, call, pay, setMark, jobOf, price }: Co
           </div>
         </div>
       )}
-      {job ? <Working box={!take} text={host ? s.from_site ? "The presenter is being filmed saying this. This takes 5 to 15 minutes." : "The presenter is being filmed saying this. This takes 5 to 15 minutes. The screen of your clip is laid over it in the montage." : swap ? "The person is being put into your clip. This takes 10 to 20 minutes." : dubbed ? `Being cut from your clip and said in ${dubLang}. This takes a few minutes.` : isClip ? "Being cut from your clip." : isScene ? "The scenes are being written and drawn from your page. The first one takes 5 to 15 minutes; the others follow in seconds." : isText ? "The text card is being made." : "Being filmed. A shot takes 3 to 15 minutes."} />
+      {job ? <Working box={!take} text={host ? !s.source_ref ? "The presenter is being filmed saying this. This takes 5 to 15 minutes." : "The presenter is being filmed saying this. This takes 5 to 15 minutes. The screen of your clip is laid over it in the montage." : swap ? "The person is being put into your clip. This takes 10 to 20 minutes." : dubbed ? `Being cut from your clip and said in ${dubLang}. This takes a few minutes.` : isClip ? "Being cut from your clip." : isScene ? "The scenes are being written and drawn from your page. The first one takes 5 to 15 minutes; the others follow in seconds." : isText ? "The text card is being made." : "Being filmed. A shot takes 3 to 15 minutes."} />
         : (!take || list.every(t => t.status === "stale")) && (
           <button type="button" disabled={busy} className={`${btn} bg-navy text-white`} data-testid="shot-film"
             onClick={() => pay(swap ? `Put the person into shot ${label}` : host ? `Film the presenter of shot ${label}` : `Film shot ${label}`, price, { action: "film", shot: s.n, ...(list.length ? { note: "Filmed again from the picture approved now." } : {}) })}>

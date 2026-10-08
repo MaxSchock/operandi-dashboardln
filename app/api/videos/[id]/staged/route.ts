@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serviceRoleClient } from "@/lib/supabase/server";
-import { resolveVideoActor, loadOwnedRequest, addEvent, heldFromClient, HELD_MESSAGE } from "@/lib/videos";
+import { resolveVideoActor, loadOwnedRequest, addEvent, heldFromClient, HELD_MESSAGE, pageUrl } from "@/lib/videos";
 import { loadStaged, type Row as StagedRow } from "@/lib/video-staged-load";
 import {
   isStaged, boardOf, shotsInOrder, shotsOfPerson, enqueue, cleanRegion, applyScriptEdits, cleanMontage, whoMissing, personClip, isHost,
@@ -64,6 +64,27 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     return ((await q).count ?? 0) > 0;
   };
   const BUSY = "This is being worked on right now. Wait until it is done; the page refreshes itself.";
+
+  // Another proposal with material the first one did not have: a web page (animated scenes) or the
+  // photo of the person who presents. The agent decides again with it; nothing is paid.
+  if (action === "script_again") {
+    if (request.status !== "script_ready") return bad("the script is already approved", 409);
+    if (await working("script_propose") || await working("script_apply")) return bad(BUSY, 409);
+    const page = pageUrl(body.product_url);
+    if (page === null) return bad("That does not look like a web address. Write it like https://www.yourcompany.com/product");
+    const photo = String(body.person_file ?? "").trim().slice(0, 200);
+    if (!page && !photo) return bad("add a web page or a photo first");
+    const brief = { ...(request.brief as Record<string, unknown>), ...(page ? { product_url: page } : {}) };
+    const notes = [
+      page ? `The client added their web page: ${page}. Use it for animated scenes if they fit this video.` : "",
+      photo ? `The client uploaded a photo of the person who should present the video talking to the camera: ${photo}.` : "",
+    ].filter(Boolean).join(" ");
+    const upd = await svc.from("video_requests").update({ brief, storyboard_notes: notes, updated_at: new Date().toISOString() })
+      .eq("id", request.id).eq("status", "script_ready").select("id");
+    if (upd.error || !upd.data?.length) return bad(upd.error?.message ?? "the video changed, reload the page", 409);
+    await addEvent(request.id, "script_again", actor, { page: page || null, photo: photo || null });
+    return queued(await enqueue(svc, { ...request, brief }, actor, "script_propose"));
+  }
 
   if (action === "script_save") {
     if (request.status !== "script_ready") return bad("the script is already approved", 409);
