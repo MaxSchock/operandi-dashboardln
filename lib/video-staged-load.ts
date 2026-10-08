@@ -59,6 +59,9 @@ export async function loadStaged(r: Row, isAdmin: boolean): Promise<StagedData> 
   const clips = Object.fromEntries(await Promise.all(uploads.filter(a => a.kind === "reference_video")
     .map(a => [a.storage_key.split("/").pop()!, a.storage_key] as const).filter(([name]) => used.has(name))
     .map(async ([name, key]) => [name, await sign(key)] as const)));
+  // The sketch of each shot, until its real picture or take exists.
+  const sketches = Object.fromEntries(await Promise.all((boardOf(r)?.shots ?? []).filter(s => s.sketch?.key)
+    .map(async s => [String(s.n), { url: await sign(s.sketch!.key), says: s.sketch!.says }] as const)));
   const held = isHeld(r);
   const versions = r.deliverable_key && !(held && !isAdmin)
     ? await Promise.all(Array.from({ length: r.deliverable_version }, (_, i) => r.deliverable_version - i)
@@ -71,7 +74,7 @@ export async function loadStaged(r: Row, isAdmin: boolean): Promise<StagedData> 
     page: String((r.brief as { product_url?: string } | null)?.product_url ?? "") || undefined,
     board: boardOf(r), montage: (r.montage ?? {}) as Montage,
     spend: spend ? { cap_usd: Number(spend.cap_usd), spent_usd: Number(spend.spent_usd), pending_usd: Number(spend.pending_usd) } : null,
-    images, takes, clips, pictures, jobs: (jb.data ?? []) as Job[], versions,
+    images, takes, clips, pictures, sketches, jobs: (jb.data ?? []) as Job[], versions,
     changes: (cr.data ?? []) as StagedData["changes"],
   };
   return data;

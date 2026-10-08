@@ -43,6 +43,8 @@ export type StagedShot = {
   from_site?: boolean;
   /** recipe "host" with no clip behind: the presenter talks to the camera between the other shots. */
   solo?: boolean;
+  /** What the shot will show, put together by the engine from material that already exists (free). */
+  sketch?: { key: string; what: string; says: string } | null;
   /** The shot that holds the picture of the new person (one picture for all their shots). */
   person_from?: number | null;
   /** kind "clip": the stretch said in another language (a new voice, the lips moved to it).

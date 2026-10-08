@@ -20,7 +20,7 @@ export type StagedData = {
   /** The client's web page animated scenes can be drawn from, when the request has one. */
   page?: string;
   board: Board | null; montage: Montage; spend: MonthSpend | null;
-  images: Image[]; takes: TakeView[]; clips: Record<string, string>; pictures: string[]; jobs: Job[]; versions: { version: number; url: string }[];
+  images: Image[]; takes: TakeView[]; clips: Record<string, string>; pictures: string[]; sketches?: Record<string, { url: string; says: string }>; jobs: Job[]; versions: { version: number; url: string }[];
   changes: { id: string; shot_n: number | null; target: string; note: string | null; region: Region | null; status: string; actor: string; created_at: string }[];
 };
 
@@ -37,6 +37,20 @@ const input = "w-full rounded-md border bg-white px-2 py-1 text-xs";
 
 /** Something is being made: a turning wheel and what it is, inline or, with
  * `box`, in the place the result will take. */
+/** What a shot will show, before it is made: drawn so that nobody takes it for the result. */
+function Sketch({ sketch }: { sketch?: { url: string; says: string } }) {
+  if (!sketch) return null;
+  return (
+    <figure className="flex max-w-md items-start gap-3" data-testid="shot-sketch">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={sketch.url} alt="Sketch of this shot" className="w-28 shrink-0 rounded-md border border-dashed border-slate-400" />
+      <figcaption className="text-[11px] leading-4 text-slate-500">
+        <span className="font-medium text-amber-800">Sketch, not the result.</span> {sketch.says}
+      </figcaption>
+    </figure>
+  );
+}
+
 function Working({ text, box }: { text: string; box?: boolean }) {
   return (
     <div role="status" aria-live="polite" data-testid="working"
@@ -574,6 +588,7 @@ function Images({ data, board, busy, call, pay, setMark, jobOf }: Common & { dat
           return (
             <div key={s.n} className="space-y-2 border-b pb-4 last:border-0" data-testid={`images-shot-${s.n}`}>
               <div className="text-xs font-medium text-navy">Shot {shotLabel(board, s.n)} <span className="font-normal text-slate-500">{s.speaker ? `${s.speaker}: ` : ""}{s.text}</span></div>
+              {!data.images.some(i => i.n === s.n) && <Sketch sketch={data.sketches?.[String(s.n)]} />}
               {isHost(s) && !s.source_ref && (
                 <p className="max-w-sm text-[11px] text-slate-400">
                   {roles.length ? "This part is filmed new: the person below says it to the camera. The picture is drawn from their photo so it fits a vertical video."
@@ -755,7 +770,8 @@ function ShotCard({ s, data, board, busy, call, pay, setMark, jobOf, price }: Co
           </div>
         </div>
       )}
-      {job ? <Working box={!take} text={host ? !s.source_ref ? "The presenter is being filmed saying this. This takes 5 to 15 minutes." : "The presenter is being filmed saying this. This takes 5 to 15 minutes. The screen of your clip is laid over it in the montage." : swap ? "The person is being put into your clip. This takes 10 to 20 minutes." : dubbed ? `Being cut from your clip and said in ${dubLang}. This takes a few minutes.` : isClip ? "Being cut from your clip." : isScene ? "The scenes are being written and drawn from your page. The first one takes 5 to 15 minutes; the others follow in seconds." : isText ? "The text card is being made." : "Being filmed. A shot takes 3 to 15 minutes."} />
+      {!take && <Sketch sketch={data.sketches?.[String(s.n)]} />}
+      {job ? <Working box={!take && !data.sketches?.[String(s.n)]} text={host ? !s.source_ref ? "The presenter is being filmed saying this. This takes 5 to 15 minutes." : "The presenter is being filmed saying this. This takes 5 to 15 minutes. The screen of your clip is laid over it in the montage." : swap ? "The person is being put into your clip. This takes 10 to 20 minutes." : dubbed ? `Being cut from your clip and said in ${dubLang}. This takes a few minutes.` : isClip ? "Being cut from your clip." : isScene ? "The scenes are being written and drawn from your page. The first one takes 5 to 15 minutes; the others follow in seconds." : isText ? "The text card is being made." : "Being filmed. A shot takes 3 to 15 minutes."} />
         : (!take || list.every(t => t.status === "stale")) && (
           <button type="button" disabled={busy} className={`${btn} bg-navy text-white`} data-testid="shot-film"
             onClick={() => pay(swap ? `Put the person into shot ${label}` : host ? `Film the presenter of shot ${label}` : `Film shot ${label}`, price, { action: "film", shot: s.n, ...(list.length ? { note: "Filmed again from the picture approved now." } : {}) })}>
