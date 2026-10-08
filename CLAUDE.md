@@ -19,7 +19,7 @@ Next.js 14 (app router) on Vercel. Data in Supabase project `xepotlbqlwmriwievyv
 
 ### State on 2026-10-07
 
-Every screen is migrated: no classic form is left. `AutoRefresh` (layout, 30 s) still brings news to the screens without their own GET (`dashboard`, `leads`, `activity`, `calling`, `engagement`, `distribution`, `templates`, `admin`); `content` and `videos/[id]` are in its `SELF_UPDATING` list and it leaves them alone. A screen leaves the timer by getting its own GET and joining that list; when the list covers all of them, delete the component.
+Every screen is migrated: no classic form is left, and the layout's 30 s `AutoRefresh` is gone. In its place `components/page-watch.tsx` asks `GET /api/pulse?path=...` for a short mark of the data behind the screen (`lib/pulse.ts`: row count, newest timestamps and states of the tables that screen reads) and calls `router.refresh()` once, only when the mark changes. A new screen that shows data written by a daemon gets a line in `SCREENS` in `lib/pulse.ts`, or its own GET and board if parts of it are being processed (`content`, `videos/[id]`, which are not in `SCREENS`).
 
 Checked live with the canary: `content` (date saved in place) and the absence of classic forms on every screen it can open. Not exercised live, because the canary is not admin and nothing that costs money or publishes is run as a test: the admin screens (`distribution`, `templates`, `admin/clients`, `calling/find`, `calling/settings`) and the paid or outward actions (revisions, generate, approve, send, video payments).
 

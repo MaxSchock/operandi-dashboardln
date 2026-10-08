@@ -6,7 +6,7 @@ import { SignOutButton } from "@/components/sign-out-button";
 import { PostHogIdentify } from "@/components/posthog-init";
 import { ClientScopeSelector } from "@/components/client-scope-selector";
 import { MobileNav, type MobileNavItem } from "@/components/mobile-nav";
-import { AutoRefresh } from "@/components/auto-refresh";
+import { PageWatch } from "@/components/page-watch";
 import { getClientScope } from "@/lib/scope";
 import { getTier } from "@/lib/tier";
 
@@ -116,7 +116,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
       <main className="flex-1 overflow-x-hidden">
         <PostHogIdentify email={cu?.email ?? u.email ?? null} clientSlug={cu?.client_slug ?? null} role={cu?.role ?? null} />
-        <AutoRefresh intervalMs={30000} />
+        <PageWatch />
         <MobileNav
           items={mobileItems}
           tenantLabel={tenantLabel}
