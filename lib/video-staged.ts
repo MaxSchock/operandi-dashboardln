@@ -39,6 +39,8 @@ export type StagedShot = {
   source_end_s?: number | null;
   character?: string | null;
   person_ref?: string | null;
+  /** recipe "host" with no clip behind: the presenter is a person of the client's product page. */
+  from_site?: boolean;
   /** The shot that holds the picture of the new person (one picture for all their shots). */
   person_from?: number | null;
   /** kind "clip": the stretch said in another language (a new voice, the lips moved to it).
@@ -222,7 +224,11 @@ export const isDrawn = (kind: string | undefined) => kind === "text" || kind ===
 /** A product launch video: every shot is a scene of one animated page the engine writes from the
  * client's product page (kind "launch"). Its words are up to three short lines, one per line. */
 export const isLaunchBoard = (b: Board) => b.shots.length > 0 && b.shots.every(s => s.kind === "launch");
+/** A product launch video, with or without a presenter between its scenes. */
+export const hasLaunch = (b: Board) => b.shots.some(s => s.kind === "launch");
 export const LAUNCH_MAX_CHARS = 300;
+/** What a presenter taken from the product page says in one shot. */
+export const HOST_SITE_MAX_CHARS = 90;
 export const isTextBoard = (b: Board) => b.shots.length > 0 && b.shots.every(s => isDrawn(s.kind));
 export const CARD_POINTS = 3;
 export type ShotEdit = {
@@ -262,8 +268,10 @@ export function applyScriptEdits(board: Board, edits: ShotEdit[], endText: strin
   const order: number[] = [];
   // A video of text on screen holds only cards of text: every shot of it is one.
   const textBoard = isTextBoard(board);
-  const launchBoard = isLaunchBoard(board);
+  const launchVideo = hasLaunch(board);
   for (const e of edits) {
+    // In a product launch video every row but the presenter's is a scene.
+    const launchBoard = launchVideo && (e.n === null || by.get(e.n)?.kind !== "clip");
     const text = launchBoard
       ? String(e.text ?? "").split("\n").map(l => l.replace(/\s+/g, " ").trim()).filter(Boolean).slice(0, 3).join("\n").slice(0, LAUNCH_MAX_CHARS)
       : String(e.text ?? "").trim().slice(0, textBoard ? TEXT_MAX_CHARS : 400);
@@ -273,6 +281,12 @@ export function applyScriptEdits(board: Board, edits: ShotEdit[], endText: strin
     const s = (old ? { ...old } : { n: next++, text_by: "client", link_edited: true }) as StagedShot & Record<string, unknown>;
     if (order.includes(s.n)) continue;
     if (old && old.text !== text) s.text_by = "client";
+    if (old && old.kind === "clip" && old.from_site) {
+      // A presenter taken from the product page: there is no clip behind, only the words said.
+      const said = String(e.text ?? "").replace(/\s+/g, " ").trim().slice(0, HOST_SITE_MAX_CHARS) || old.text;
+      if (said !== old.text) { s.text = said; s.text_by = "client"; } else { s.text = old.text; s.text_by = old.text_by; }
+      shots.push(s); order.push(s.n); continue;
+    }
     if (old && old.kind === "clip") {
       if (e.from_s !== undefined || e.to_s !== undefined) {
         const a = Math.round(Number(e.from_s) * 100) / 100, b = Math.round(Number(e.to_s) * 100) / 100;

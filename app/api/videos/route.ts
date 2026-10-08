@@ -133,6 +133,11 @@ async function createLaunch(body: Record<string, unknown>, actor: VideoActor) {
   const asked = Number(body.duration_s);
   const durationS = Math.min(Math.max(Number.isFinite(asked) && asked > 0 ? Math.round(asked) : 20, 12), 30);
   const tone = TONES.has(String(body.tone)) ? String(body.tone) : null;
+  // With a presenter: a person of the page opens and closes the video (filmed, paid step by step).
+  // Their voice is the stock voice of the language unless one is named with the request.
+  const presenter = body.presenter === true;
+  const named = String(body.presenter_voice ?? "").trim();
+  const presenterVoice = presenter && /^(eleven:)?[A-Za-z][A-Za-z_]{1,40}$/.test(named) ? { voice: named } : null;
 
   const svc = serviceRoleClient();
   const { data, error: dbError } = await svc.from("video_requests").insert({
@@ -141,6 +146,7 @@ async function createLaunch(body: Record<string, unknown>, actor: VideoActor) {
     status: "draft",
     brief: {
       style: "launch", flow: "staged", request, language, product_url: url, tone, duration_s: durationS,
+      ...(presenter ? { presenter: true, ...(presenterVoice ? { presenter_voice: presenterVoice } : {}) } : {}),
       goal: request ? (request.length > 80 ? `${request.slice(0, 77)}...` : request) : `Product launch: ${host}`,
       linked_post_id: null, aspect: "9:16", voice: false, music: false,
     },

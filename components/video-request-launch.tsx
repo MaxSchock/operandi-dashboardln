@@ -18,8 +18,9 @@ const TONES: [string, string][] = [
  * Product launch video: one sentence and the address of the product's page.
  * The engine opens the page, takes its copy, colours, fonts, logo and
  * pictures, and proposes animated scenes the client edits in the script
- * (video-engine app/launch.py). No people, no voice; drawing it uses none of
- * the production budget.
+ * (video-engine app/launch.py). Drawing it uses none of the production budget.
+ * With a presenter, a person shown on the page opens and closes the video,
+ * filmed from their picture there (paid, each step with its price).
  */
 export function VideoRequestLaunch({ onBack, backLabel }: { onBack: () => void; backLabel: string }) {
   const router = useRouter();
@@ -42,6 +43,7 @@ export function VideoRequestLaunch({ onBack, backLabel }: { onBack: () => void; 
           tone: fd.get("tone"),
           duration_s: Number(fd.get("duration_s")),
           language: fd.get("language"),
+          presenter: fd.get("presenter") === "on",
         }),
       });
       const data = await res.json();
@@ -102,9 +104,15 @@ export function VideoRequestLaunch({ onBack, backLabel }: { onBack: () => void; 
           </select>
         </div>
       </div>
+      <label className="flex items-start gap-2 text-xs leading-5 text-slate-600">
+        <input type="checkbox" name="presenter" className="mt-1" data-testid="launch-presenter" />
+        <span><span className="font-medium text-slate-700">With a presenter.</span> A person shown on your page opens and
+          closes the video talking to the camera, and the animated scenes run in between. Filming the presenter is
+          paid from your production budget: you see each price before anything is made.</span>
+      </label>
       <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600">
         Next step: the scenes of the video as a script (about 2 minutes). You change any line there, then the
-        scenes are drawn. Animated graphics only: no people, no voice, none of your production budget.
+        scenes are drawn. The animated scenes use none of your production budget.
       </div>
       {error && <div className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700">{error}</div>}
       <div className="flex items-center gap-3">

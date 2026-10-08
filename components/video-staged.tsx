@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Card, CardHeader, CardBody, Badge } from "@/components/ui";
 import { PayDialog, type MonthSpend } from "@/components/video-pay";
 import { ChangeMarker } from "@/components/video-change-marker";
-import { shotsInOrder, whoMissing, isHost, othersIn, CLIP_MAX_S, LANG_NAMES, TEXT_MAX_CHARS, LAUNCH_MAX_CHARS, canDub, isTextBoard, isLaunchBoard, isDrawn, ON_SCREEN_MAX_CHARS, SAFE_ZONES, LAYOUTS, type Layout, type Safe, type Board, type Job, type Join, type Montage, type Region, type ShotEdit, type StagedShot } from "@/lib/video-staged";
+import { shotsInOrder, whoMissing, isHost, othersIn, CLIP_MAX_S, LANG_NAMES, TEXT_MAX_CHARS, LAUNCH_MAX_CHARS, HOST_SITE_MAX_CHARS, hasLaunch, canDub, isTextBoard, isLaunchBoard, isDrawn, ON_SCREEN_MAX_CHARS, SAFE_ZONES, LAYOUTS, type Layout, type Safe, type Board, type Job, type Join, type Montage, type Region, type ShotEdit, type StagedShot } from "@/lib/video-staged";
 
 type Image = { id: string; n: number; role: "start" | "end"; version: number; status: string; notes: string | null; carried: boolean; url: string };
 type TakeView = {
@@ -216,7 +216,7 @@ function MarkDialog({ mark, spend, busy, onConfirm, onCancel }: {
 
 /* ---------- stage 0: the shot table ---------- */
 
-type Row = ShotEdit & { key: string; host?: boolean; text_by?: string; locked?: boolean; duration_s?: number; clip?: string | null; how?: string | null; shows?: string; from?: string; to?: string; dub_lang?: string; can_dub?: boolean };
+type Row = ShotEdit & { key: string; host?: boolean; site?: boolean; text_by?: string; locked?: boolean; duration_s?: number; clip?: string | null; how?: string | null; shows?: string; from?: string; to?: string; dub_lang?: string; can_dub?: boolean };
 
 /** A stretch of the client's clip: the player shows that part only. */
 function ClipStretch({ src, from, to }: { src?: string; from: number; to: number }) {
@@ -242,7 +242,7 @@ function Script({ board, clips, pictures, lang, busy, call }: { board: Board; cl
     lips_where: s.lips?.where ?? (s.kind === "pantalla" ? "phone" : "face"), narration: s.narration ?? "", to_phone: !!s.to_phone,
     text_by: s.text_by, locked: s.kind === "clip", duration_s: s.duration_s, on_screen: s.on_screen ?? "",
     card_image: s.card?.image ?? "", card_points: (s.card?.points ?? []).join("\n"), shows: s.show?.shows ?? "",
-    ...(s.kind === "clip" ? { clip: s.source_ref, how: clipWords(s), host: isHost(s), from: String(s.source_start_s ?? 0),
+    ...(s.kind === "clip" ? { clip: s.source_ref, how: clipWords(s), host: isHost(s), site: !!s.from_site, from: String(s.source_start_s ?? 0),
       to: String(s.source_end_s ?? Math.round(((s.source_start_s ?? 0) + s.duration_s) * 100) / 100),
       ...(s.dub ? { dub_lang: s.dub.lang, dub_text: s.dub.text, dub_off: false } : { can_dub: canDub(s, lang), dub_on: false }) } : {}),
   })));
@@ -269,8 +269,8 @@ function Script({ board, clips, pictures, lang, busy, call }: { board: Board; cl
   }, [board]);
   const send = (approve: boolean) => call({
     action: "script_save", approve, end_text: endText, proposals: decisions, clip_who: who, clip_others: others,
-    shots: rows.map(({ key: _k, host: _ho, text_by: _t, locked: _l, duration_s: _d, clip: _c, how: _h, dub_lang: _g, can_dub: _cd, from, to, ...e }) =>
-      _l ? { ...e, from_s: Number(from), to_s: Number(to) } : e),
+    shots: rows.map(({ key: _k, host: _ho, site: _si, text_by: _t, locked: _l, duration_s: _d, clip: _c, how: _h, dub_lang: _g, can_dub: _cd, from, to, ...e }) =>
+      _l && !_si ? { ...e, from_s: Number(from), to_s: Number(to) } : e),
   });
   const open = board.proposals.filter(p => !p.applied);
 
@@ -376,7 +376,11 @@ function Script({ board, clips, pictures, lang, busy, call }: { board: Board; cl
                     placeholder="6 words at most, not a copy of what is said" className={input} data-testid="shot-on-screen" />
                 </label>
               )}
-              {r.locked ? (
+              {r.site ? (
+                <label className="block text-[11px] text-slate-500" data-testid="host-site-row">The presenter, a person shown on your page, says this to the camera (filmed new, paid; one short sentence)
+                  <textarea rows={2} maxLength={HOST_SITE_MAX_CHARS} value={r.text ?? ""} onChange={e => set(i, { text: e.target.value })} className={`${input} leading-5`} data-testid="host-site-text" />
+                </label>
+              ) : r.locked ? (
                 <div className="flex flex-wrap items-start gap-3 text-xs text-slate-600" data-testid="clip-row">
                   <ClipStretch src={r.clip ? clips[r.clip] : undefined} from={Number(r.from)} to={Number(r.to)} />
                   <div className="max-w-md space-y-2">
@@ -450,7 +454,7 @@ function Script({ board, clips, pictures, lang, busy, call }: { board: Board; cl
             </div>
           ))}
           <button type="button" className={`${btn} border text-slate-600`} disabled={rows.length >= 12}
-            onClick={() => setRows(r => [...r, { key: `new${added.current++}`, n: null, kind: isLaunchBoard(board) ? "launch" : isTextBoard(board) ? "text" : "persona", text: "", speaker: "", camera: "", link: "cut", lips_where: "face", narration: "" }])}>
+            onClick={() => setRows(r => [...r, { key: `new${added.current++}`, n: null, kind: hasLaunch(board) ? "launch" : isTextBoard(board) ? "text" : "persona", text: "", speaker: "", camera: "", link: "cut", lips_where: "face", narration: "" }])}>
             Add a shot
           </button>
         </div>
@@ -497,7 +501,13 @@ function Images({ data, board, busy, call, pay, setMark, jobOf }: Common & { dat
           return (
             <div key={s.n} className="space-y-2 border-b pb-4 last:border-0" data-testid={`images-shot-${s.n}`}>
               <div className="text-xs font-medium text-navy">Shot {shotLabel(board, s.n)} <span className="font-normal text-slate-500">{s.speaker ? `${s.speaker}: ` : ""}{s.text}</span></div>
-              {s.kind === "clip" && (
+              {s.kind === "clip" && s.from_site && (
+                <p className="max-w-sm text-[11px] text-slate-400">
+                  {roles.length ? "This part is filmed new: the person shown on your page, drawn again as the presenter below, says it to the camera."
+                    : `The same presenter as in shot ${shotLabel(board, s.person_from ?? s.n)}: that picture is used here too.`}
+                </p>
+              )}
+              {s.kind === "clip" && !s.from_site && (
                 <div className="flex flex-wrap items-start gap-3">
                   <ClipStretch src={s.source_ref ? data.clips[s.source_ref] : undefined} from={s.source_start_s ?? 0} to={s.source_end_s ?? (s.source_start_s ?? 0) + s.duration_s} />
                   <p className="max-w-sm text-[11px] text-slate-400">
@@ -672,7 +682,7 @@ function ShotCard({ s, data, board, busy, call, pay, setMark, jobOf, price }: Co
           </div>
         </div>
       )}
-      {job ? <Working box={!take} text={host ? "The presenter is being filmed saying this. This takes 5 to 15 minutes. The screen of your clip is laid over it in the montage." : swap ? "The person is being put into your clip. This takes 10 to 20 minutes." : dubbed ? `Being cut from your clip and said in ${dubLang}. This takes a few minutes.` : isClip ? "Being cut from your clip." : isScene ? "The scenes are being written and drawn from your page. The first one takes 5 to 15 minutes; the others follow in seconds." : isText ? "The text card is being made." : "Being filmed. A shot takes 3 to 15 minutes."} />
+      {job ? <Working box={!take} text={host ? s.from_site ? "The presenter is being filmed saying this. This takes 5 to 15 minutes." : "The presenter is being filmed saying this. This takes 5 to 15 minutes. The screen of your clip is laid over it in the montage." : swap ? "The person is being put into your clip. This takes 10 to 20 minutes." : dubbed ? `Being cut from your clip and said in ${dubLang}. This takes a few minutes.` : isClip ? "Being cut from your clip." : isScene ? "The scenes are being written and drawn from your page. The first one takes 5 to 15 minutes; the others follow in seconds." : isText ? "The text card is being made." : "Being filmed. A shot takes 3 to 15 minutes."} />
         : (!take || list.every(t => t.status === "stale")) && (
           <button type="button" disabled={busy} className={`${btn} bg-navy text-white`} data-testid="shot-film"
             onClick={() => pay(swap ? `Put the person into shot ${label}` : host ? `Film the presenter of shot ${label}` : `Film shot ${label}`, price, { action: "film", shot: s.n, ...(list.length ? { note: "Filmed again from the picture approved now." } : {}) })}>
