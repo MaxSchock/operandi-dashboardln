@@ -74,7 +74,7 @@ export async function loadStaged(r: Row, isAdmin: boolean): Promise<StagedData> 
         .eq("status", "approved").eq("name", pr.name).order("version", { ascending: false }).limit(1);
       key = (ch?.[0] as { sheet_key?: string | null } | undefined)?.sheet_key ?? null;
     }
-    presenter = { from, name: pr.name ?? null, url: key ? await sign(key) : null };
+    presenter = { from, name: pr.name ?? null, section: pr.section ?? null, url: key ? await sign(key) : null };
   }
   const held = isHeld(r);
   const versions = r.deliverable_key && !(held && !isAdmin)

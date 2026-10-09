@@ -72,7 +72,9 @@ export type Advice = { type: string; shot_n: number | null; text: string };
 
 export type Board = {
   /** A video with animated scenes of the client's page: the page, and who presents it (if anyone). */
-  launch?: { url?: string; presenter?: { from?: string; name?: string | null; file?: string; key?: string } | null } | null;
+  launch?: { url?: string; presenter?: { from?: string; name?: string | null; file?: string; key?: string; section?: string | null } | null;
+    /** A presenter was wanted and the page puts no person forward: nobody was made up. */
+    nobody_on_page?: boolean } | null;
   schema: number;
   shots: StagedShot[];
   order: number[];

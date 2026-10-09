@@ -219,8 +219,10 @@ export function VideoRequestSimple({
       </Field>
 
       <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600">
-        Next step: a free {word} (about 2 minutes) with the kind of video we chose, the script and the
-        estimated cost. You can ask for any change there, including a different kind of video.
+        {staged
+          ? "Next step: a free script (about 2 minutes): the kind of video we chose, every shot with its words, and the estimated cost."
+          : "Next step: a free storyboard (about 2 minutes) with the kind of video we chose, the script and the estimated cost."}
+        {" "}You can ask for any change there, including a different kind of video.
         {keyframeReview
           ? " Then you approve an image of every shot. Nothing is produced and no budget is used until you approve them."
           : " Nothing is produced and no budget is used until you approve it."}

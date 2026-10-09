@@ -22,7 +22,7 @@ export type StagedData = {
   board: Board | null; montage: Montage; spend: MonthSpend | null;
   images: Image[]; takes: TakeView[]; clips: Record<string, string>; pictures: string[]; sketches?: Record<string, { url: string; says: string }>;
   /** Who presents a video with animated scenes: where they come from and the photo they are drawn from. */
-  presenter?: { from: "page" | "photo" | "character"; name: string | null; url: string | null };
+  presenter?: { from: "page" | "photo" | "character"; name: string | null; section?: string | null; url: string | null };
   jobs: Job[]; versions: { version: number; url: string }[];
   changes: { id: string; shot_n: number | null; target: string; note: string | null; region: Region | null; status: string; actor: string; created_at: string }[];
 };
@@ -311,7 +311,7 @@ function Offers({ board, id, page, hasPresenter, busy, call }: { board: Board; i
       {scenes && !hasPresenter && (
         <div className={box} data-testid="offer-presenter">
           <div className="font-medium text-slate-700">Not in this video: a person who presents it</div>
-          <p>Nobody speaks in this video. Upload a photo of a person and they can open and close it talking to the camera (filming them is paid; you see the price first).</p>
+          <p>{board.launch?.nobody_on_page ? "Your page does not put one person forward clearly (no large picture of a single person facing the camera), and we do not make anyone up." : "Nobody speaks in this video."} Upload a photo of a person and they can open and close it talking to the camera (filming them is paid; you see the price first).</p>
           <input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy || !!state} data-testid="offer-presenter-photo"
             onChange={e => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void addPhoto(f); }}
             className="block w-full text-xs text-slate-600 file:mr-2 file:rounded-md file:border-0 file:bg-white file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-slate-700" />
@@ -347,12 +347,18 @@ function usePresenterPhoto(id: string, call: Common["call"]) {
   return { state, error, add };
 }
 
+/** The presenter in the client's words: who they are and where their photo comes from. */
+function presenterWho(p: NonNullable<StagedData["presenter"]>): string {
+  if (p.from === "photo") return "The person in the photo you uploaded";
+  if (p.from === "character") return `${p.name ?? "Your presenter"}, one of your approved people`;
+  return `${p.name ? `${p.name}, the person` : "The person"} who appears on your page${p.section ? `, in the part "${p.section}"` : ""}`;
+}
+
 /** Who presents the video, where they come from, and how to have someone else: a row of the script. */
 function Presenter({ presenter, price, id, busy, call }: { presenter: NonNullable<StagedData["presenter"]>; price: number; id: string; busy: boolean; call: Common["call"] }) {
   const photo = usePresenterPhoto(id, call);
-  const who = presenter.from === "page" ? `${presenter.name ?? "A person"} from your web page`
-    : presenter.from === "photo" ? "The person in the photo you uploaded" : `${presenter.name ?? "Your presenter"}, one of your approved people`;
-  const why = presenter.from === "page" ? "We chose this picture of your page because it shows one person clearly, facing the camera."
+  const who = presenterWho(presenter);
+  const why = presenter.from === "page" ? "We chose this picture because it is the person your page itself puts forward, the same one the scenes of your page show."
     : presenter.from === "photo" ? "You uploaded this photo for the video." : "You approved this person for your videos.";
   return (
     <div className="flex flex-col gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 sm:flex-row" data-testid="presenter-note">
@@ -676,7 +682,7 @@ function Images({ data, board, busy, call, pay, setMark, jobOf }: Common & { dat
                       <div className="flex items-start gap-3" data-testid="presenter-source">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src={data.presenter.url} alt="The photo the presenter is drawn from" className="h-24 w-24 rounded-md border bg-white object-cover object-top" />
-                        <p className="max-w-xs text-[11px] leading-4 text-slate-500">{data.presenter.from === "page" ? `${data.presenter.name ?? "This person"}, from your web page.` : data.presenter.from === "photo" ? "The person in the photo you uploaded." : `${data.presenter.name ?? "Your presenter"}, one of your approved people.`} Their picture for the video is drawn from this photo: chest up, looking into the camera. You approve it before anything is filmed.</p>
+                        <p className="max-w-xs text-[11px] leading-4 text-slate-500">{presenterWho(data.presenter)}. Their picture for the video is drawn from this photo: chest up, looking into the camera. You approve it before anything is filmed.</p>
                       </div>
                     )}
                     <div className="flex flex-wrap gap-3">
