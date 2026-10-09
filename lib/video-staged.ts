@@ -13,7 +13,7 @@ export type StagedShot = {
   n: number;
   kind: "persona" | "pantalla" | "silent" | "ceo" | "clip" | "text" | "motion" | "launch";
   /** kind "launch": a scene of a product launch video, with what the engine planned to show in it. */
-  show?: { role: string; shows: string } | null;
+  show?: { role: string; shows: string; /** The same, in the client's words and language. */ seen?: string; screen?: number } | null;
   /** kind "motion": what the drawn shot shows besides its words, one of the client's own pictures or a short list. */
   card?: { role: "screen" | "points"; image: string | null; points: string[] } | null;
   text: string;
@@ -72,7 +72,7 @@ export type Advice = { type: string; shot_n: number | null; text: string };
 
 export type Board = {
   /** A video with animated scenes of the client's page: the page, and who presents it (if anyone). */
-  launch?: { url?: string; presenter?: { from?: string; name?: string | null; file?: string } | null } | null;
+  launch?: { url?: string; presenter?: { from?: string; name?: string | null; file?: string; key?: string } | null } | null;
   schema: number;
   shots: StagedShot[];
   order: number[];

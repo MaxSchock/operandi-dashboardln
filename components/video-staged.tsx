@@ -20,7 +20,10 @@ export type StagedData = {
   /** The client's web page animated scenes can be drawn from, when the request has one. */
   page?: string;
   board: Board | null; montage: Montage; spend: MonthSpend | null;
-  images: Image[]; takes: TakeView[]; clips: Record<string, string>; pictures: string[]; sketches?: Record<string, { url: string; says: string }>; jobs: Job[]; versions: { version: number; url: string }[];
+  images: Image[]; takes: TakeView[]; clips: Record<string, string>; pictures: string[]; sketches?: Record<string, { url: string; says: string }>;
+  /** Who presents a video with animated scenes: where they come from and the photo they are drawn from. */
+  presenter?: { from: "page" | "photo" | "character"; name: string | null; url: string | null };
+  jobs: Job[]; versions: { version: number; url: string }[];
   changes: { id: string; shot_n: number | null; target: string; note: string | null; region: Region | null; status: string; actor: string; created_at: string }[];
 };
 
@@ -39,14 +42,24 @@ const input = "w-full rounded-md border bg-white px-2 py-1 text-xs";
  * `box`, in the place the result will take. */
 /** What a shot will show, before it is made: drawn so that nobody takes it for the result. */
 function Sketch({ sketch }: { sketch?: { url: string; says: string } }) {
+  const [large, setLarge] = useState(false);
   if (!sketch) return null;
   return (
-    <figure className="flex max-w-md items-start gap-3" data-testid="shot-sketch">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={sketch.url} alt="Sketch of this shot" className="w-28 shrink-0 rounded-md border border-dashed border-slate-400" />
-      <figcaption className="text-[11px] leading-4 text-slate-500">
+    <figure className="flex max-w-xl flex-col items-start gap-2 sm:flex-row sm:gap-3" data-testid="shot-sketch">
+      <button type="button" onClick={() => setLarge(true)} className="shrink-0" aria-label="Show the sketch larger" data-testid="sketch-open">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={sketch.url} alt="Sketch of this shot" className="w-56 rounded-md border border-dashed border-slate-400" />
+      </button>
+      <figcaption className="text-xs leading-5 text-slate-500">
         <span className="font-medium text-amber-800">Sketch, not the result.</span> {sketch.says}
+        <span className="mt-1 block text-[11px] text-slate-400">Tap the sketch to see it larger.</span>
       </figcaption>
+      {large && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/70 p-4" role="dialog" aria-modal="true" onClick={() => setLarge(false)} data-testid="sketch-large">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={sketch.url} alt="Sketch of this shot" className="max-h-full max-w-full rounded-md bg-white" />
+        </div>
+      )}
     </figure>
   );
 }
@@ -110,7 +123,12 @@ export function VideoStaged({ data: served }: { data: StagedData }) {
       const res = await fetch(`/api/videos/${data.id}/staged`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) { setError(d.error ?? `failed (${res.status})`); return false; }
-      router.refresh();
+      // Only this card is drawn again, from the same data the page is served with.
+      const got = await fetch(`/api/videos/${data.id}/staged`, { cache: "no-store" }).catch(() => null);
+      const fresh = got?.ok ? await got.json() as StagedData : null;
+      if (!fresh) { router.refresh(); return true; }
+      if (fresh.status !== data.status) router.refresh();   // the page's own header (badge, events)
+      setData(fresh);
       return true;
     } catch {
       setError("No connection. Try again in a moment."); return false;
@@ -147,7 +165,7 @@ export function VideoStaged({ data: served }: { data: StagedData }) {
       )}
       {!board && <Card><CardBody><p className="text-sm text-slate-600">The shots are being written. This takes about a minute.</p></CardBody></Card>}
 
-      {board && status === "script_ready" && <Script key={JSON.stringify(board.shots) + JSON.stringify(board.proposals) + JSON.stringify(board.clip_people ?? {})} board={board} clips={data.clips} pictures={data.pictures} lang={data.lang} id={data.id} page={data.page} busy={busy || !!jobOf("script_apply") || !!jobOf("script_propose")} call={call} />}
+      {board && status === "script_ready" && <Script key={JSON.stringify(board.shots) + JSON.stringify(board.proposals) + JSON.stringify(board.clip_people ?? {})} board={board} clips={data.clips} pictures={data.pictures} lang={data.lang} id={data.id} page={data.page} presenter={data.presenter} busy={busy || !!jobOf("script_apply") || !!jobOf("script_propose")} call={call} />}
       {board && stage > 2 && <ScriptSummary board={board} />}
       {board && stage >= 3 && Object.entries(board.clip_people ?? {}).filter(([ref, cp]) => cp.people.length > 1
         && board.shots.some(s => s.kind === "clip" && s.recipe === "swap" && s.source_ref === ref)).map(([ref, cp]) => (
@@ -269,26 +287,11 @@ function rowWords(r: Row, board: Board): string {
 /** What this proposal could not use because it was not there, with the way to add it: a row of the script. */
 function Offers({ board, id, page, hasPresenter, busy, call }: { board: Board; id: string; page?: string; hasPresenter: boolean; busy: boolean; call: Common["call"] }) {
   const [url, setUrl] = useState("");
-  const [state, setState] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [asking, setState] = useState<string | null>(null);
+  const photo = usePresenterPhoto(id, call);
+  const state = asking ?? photo.state, error = photo.error;
+  const addPhoto = photo.add;
   const scenes = hasLaunch(board);
-  async function addPhoto(f: File) {
-    setError(null);
-    try {
-      setState("Uploading the photo...");
-      const pres = await fetch(`/api/videos/${id}/references/presign`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ filename: f.name, mime: f.type, size: f.size }) });
-      const pd = await pres.json();
-      if (!pres.ok) throw new Error(pd.error ?? "the photo could not be uploaded");
-      const put = await fetch(pd.url, { method: "PUT", headers: { "content-type": pd.mime ?? f.type }, body: f });
-      if (!put.ok) throw new Error("the photo could not be uploaded");
-      const conf = await fetch(`/api/videos/${id}/references/confirm`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: pd.key, use: "person" }) });
-      if (!conf.ok) throw new Error("the photo could not be saved");
-      setState("Asking for another proposal...");
-      await call({ action: "script_again", person_file: String(pd.key).split("/").pop() });
-    } catch (e) {
-      setError(String(e instanceof Error ? e.message : e));
-    } finally { setState(null); }
-  }
   const box = "space-y-2 rounded-md border border-dashed border-slate-300 bg-slate-50 p-3 text-xs text-slate-600";
   if (page && (!scenes || hasPresenter)) return null;
   return (
@@ -320,12 +323,61 @@ function Offers({ board, id, page, hasPresenter, busy, call }: { board: Board; i
   );
 }
 
-function Script({ board, clips, pictures, lang, id, page, busy, call }: { board: Board; clips: Record<string, string>; pictures: string[]; lang?: string; id: string; page?: string; busy: boolean; call: Common["call"] }) {
+/** Uploads a photo of a person for this request and asks for another proposal with them presenting (free). */
+function usePresenterPhoto(id: string, call: Common["call"]) {
+  const [state, setState] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  async function add(f: File) {
+    setError(null);
+    try {
+      setState("Uploading the photo...");
+      const pres = await fetch(`/api/videos/${id}/references/presign`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ filename: f.name, mime: f.type, size: f.size }) });
+      const pd = await pres.json();
+      if (!pres.ok) throw new Error(pd.error ?? "the photo could not be uploaded");
+      const put = await fetch(pd.url, { method: "PUT", headers: { "content-type": pd.mime ?? f.type }, body: f });
+      if (!put.ok) throw new Error("the photo could not be uploaded");
+      const conf = await fetch(`/api/videos/${id}/references/confirm`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: pd.key, use: "person" }) });
+      if (!conf.ok) throw new Error("the photo could not be saved");
+      setState("Asking for another proposal...");
+      await call({ action: "script_again", person_file: String(pd.key).split("/").pop() });
+    } catch (e) {
+      setError(String(e instanceof Error ? e.message : e));
+    } finally { setState(null); }
+  }
+  return { state, error, add };
+}
+
+/** Who presents the video, where they come from, and how to have someone else: a row of the script. */
+function Presenter({ presenter, price, id, busy, call }: { presenter: NonNullable<StagedData["presenter"]>; price: number; id: string; busy: boolean; call: Common["call"] }) {
+  const photo = usePresenterPhoto(id, call);
+  const who = presenter.from === "page" ? `${presenter.name ?? "A person"} from your web page`
+    : presenter.from === "photo" ? "The person in the photo you uploaded" : `${presenter.name ?? "Your presenter"}, one of your approved people`;
+  const why = presenter.from === "page" ? "We chose this picture of your page because it shows one person clearly, facing the camera."
+    : presenter.from === "photo" ? "You uploaded this photo for the video." : "You approved this person for your videos.";
+  return (
+    <div className="flex flex-col gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 sm:flex-row" data-testid="presenter-note">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      {presenter.url && <img src={presenter.url} alt="The person who presents" className="h-28 w-28 shrink-0 rounded-md border bg-white object-cover object-top" />}
+      <div className="min-w-0 space-y-1.5">
+        <div className="font-medium text-slate-700">Who presents your video: {who}</div>
+        <p>{why} They open and close the video talking to the camera. They are drawn new from this photo and then filmed{price > 0 ? ` (${usd(price)} for each of their shots, shown before you pay)` : ""}.</p>
+        <p>Rather someone else? Upload a photo of that person and you get a new proposal with them. The proposal is free; filming them costs the same. For a video with nobody in it, remove their shots below.</p>
+        <input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy || !!photo.state} data-testid="presenter-change-photo" aria-label="Photo of another person to present"
+          onChange={e => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void photo.add(f); }}
+          className="block w-full text-xs text-slate-600 file:mr-2 file:rounded-md file:border file:border-slate-300 file:bg-white file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-slate-700" />
+        {photo.state && <Working text={photo.state} />}
+        {photo.error && <div className="text-red-700">{photo.error}</div>}
+      </div>
+    </div>
+  );
+}
+
+function Script({ board, clips, pictures, lang, id, page, presenter, busy, call }: { board: Board; clips: Record<string, string>; pictures: string[]; lang?: string; id: string; page?: string; presenter?: StagedData["presenter"]; busy: boolean; call: Common["call"] }) {
   const [rows, setRows] = useState<Row[]>(() => shotsInOrder(board).map(s => ({
     key: `s${s.n}`, n: s.n, kind: s.kind, text: s.text, speaker: s.speaker, camera: s.camera ?? "", link: s.link,
     lips_where: s.lips?.where ?? (s.kind === "pantalla" ? "phone" : "face"), narration: s.narration ?? "", to_phone: !!s.to_phone,
     text_by: s.text_by, locked: s.kind === "clip", duration_s: s.duration_s, on_screen: s.on_screen ?? "",
-    card_image: s.card?.image ?? "", card_points: (s.card?.points ?? []).join("\n"), shows: s.show?.shows ?? "",
+    card_image: s.card?.image ?? "", card_points: (s.card?.points ?? []).join("\n"), shows: s.show?.seen ?? "",
     ...(s.kind === "clip" ? { clip: s.source_ref, how: clipWords(s), host: isHost(s), site: isHost(s) && !s.source_ref, from: String(s.source_start_s ?? 0),
       to: String(s.source_end_s ?? Math.round(((s.source_start_s ?? 0) + s.duration_s) * 100) / 100),
       ...(s.dub ? { dub_lang: s.dub.lang, dub_text: s.dub.text, dub_off: false } : { can_dub: canDub(s, lang), dub_on: false }) } : {}),
@@ -428,6 +480,10 @@ function Script({ board, clips, pictures, lang, id, page, busy, call }: { board:
             ))}
           </div>
         ))}
+        {presenter && rows.some(r => r.site) && (
+          <Presenter presenter={presenter} id={id} busy={busy} call={call}
+            price={Math.max(0, ...rows.filter(r => r.site && r.n !== null).map(r => Object.values(board.costs.shots[String(r.n)] ?? {}).reduce((a, b) => a + b, 0)))} />
+        )}
         <div className="space-y-3">
           {rows.map((r, i) => (
             <div key={r.key} className="rounded-md border p-3" data-testid="shot-row">
@@ -501,7 +557,7 @@ function Script({ board, clips, pictures, lang, id, page, busy, call }: { board:
                   <label className="block text-[11px] text-slate-500">Lines on screen in this scene (one per line, up to 3; few words read best)
                     <textarea rows={3} maxLength={LAUNCH_MAX_CHARS} value={r.text ?? ""} onChange={e => set(i, { text: e.target.value })} className={`${input} leading-5`} data-testid="shot-text" />
                   </label>
-                  {r.shows && <p className="text-[11px] leading-4 text-slate-400" data-testid="launch-shows">Shows, from your page: {r.shows}</p>}
+                  {r.shows && <p className="text-xs leading-5 text-slate-500" data-testid="launch-shows"><span className="font-medium text-slate-600">What you will see:</span> {r.shows}</p>}
                 </div>
               ) : isDrawn(r.kind) ? (
                 <label className="block text-[11px] text-slate-500">Text on screen{r.text_by === "agent" ? " (suggested, not yours)" : ""}
@@ -616,6 +672,13 @@ function Images({ data, board, busy, call, pay, setMark, jobOf }: Common & { dat
                 return (
                   <div key={role} className="space-y-1">
                     <div className="text-[11px] uppercase tracking-wide text-slate-400">{isHost(s) ? "The presenter of your video" : s.kind === "clip" ? "The person who goes into your clip" : role === "start" ? "First picture" : "Last picture"}</div>
+                    {isHost(s) && !list.length && !s.source_ref && data.presenter?.url && (
+                      <div className="flex items-start gap-3" data-testid="presenter-source">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={data.presenter.url} alt="The photo the presenter is drawn from" className="h-24 w-24 rounded-md border bg-white object-cover object-top" />
+                        <p className="max-w-xs text-[11px] leading-4 text-slate-500">{data.presenter.from === "page" ? `${data.presenter.name ?? "This person"}, from your web page.` : data.presenter.from === "photo" ? "The person in the photo you uploaded." : `${data.presenter.name ?? "Your presenter"}, one of your approved people.`} Their picture for the video is drawn from this photo: chest up, looking into the camera. You approve it before anything is filmed.</p>
+                      </div>
+                    )}
                     <div className="flex flex-wrap gap-3">
                       {list.map(i => (
                         <figure key={i.id} className="w-32 space-y-1 text-[11px]" data-testid={`image-${s.n}-${role}-v${i.version}`}>

@@ -70,12 +70,15 @@ export default async function NewVideoPage({ searchParams }: { searchParams: Pro
       <header>
         <h1 className="font-display text-2xl text-navy">New video request</h1>
         <p className="text-sm text-slate-500">
-          You have 1 video (up to {actor.features.video_max_duration_s} seconds) per week.
-          Free edits are unlimited; a full regeneration is available once per video.
+          {spend
+            ? <>Your production budget this month: ${(spend.spent_usd + spend.pending_usd).toFixed(2)} of ${spend.cap_usd.toFixed(2)} used.
+                Videos run up to {actor.features.video_max_duration_s} seconds. The script is free; every step that costs money shows its price first.</>
+            : <>You have 1 video (up to {actor.features.video_max_duration_s} seconds) per week.
+                Free edits are unlimited; a full regeneration is available once per video.</>}
         </p>
       </header>
       <Card>
-        <CardHeader title={advanced ? "Detailed brief (admin)" : "Your video"} hint="the more specific, the better the storyboard" />
+        <CardHeader title={advanced ? "Detailed brief (admin)" : "Your video"} hint={`the more specific, the better the ${actor.features.video_staged_flow ? "script" : "storyboard"}`} />
         <CardBody>
           {advanced ? (
             <VideoWizard

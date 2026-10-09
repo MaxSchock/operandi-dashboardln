@@ -121,7 +121,10 @@ export default async function VideosPage() {
   ).length;
   const quota = tier.features?.video_weekly_quota ?? 1;
   const maxS = tier.features?.video_max_duration_s ?? 15;
-  const canRequest = tier.isAdmin || usedThisWeek < quota;
+  // Step by step there is no weekly slot: a monthly budget, spent step by step with each price shown.
+  const staged = !!tier.features?.video_staged_flow;
+  const word = staged ? "script" : "storyboard";
+  const canRequest = tier.isAdmin || staged || usedThisWeek < quota;
 
   return (
     <div className="space-y-6">
@@ -130,7 +133,7 @@ export default async function VideosPage() {
         <div>
           <h1 className="font-display text-2xl text-navy">Videos</h1>
           <p className="text-sm text-slate-500">
-            Short videos for your LinkedIn feed: brief it, approve the storyboard, review the result.
+            Short videos for your LinkedIn feed: brief it, approve the {word}, review the result.
           </p>
         </div>
         <Link
@@ -143,13 +146,24 @@ export default async function VideosPage() {
 
       <Card>
         <CardBody className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-slate-600">
-          <span>
-            This week: <span className="font-medium text-navy">{usedThisWeek} of {quota}</span> video{quota === 1 ? "" : "s"} used
-          </span>
-          <span>Up to {maxS} seconds per video</span>
-          <span>Free edits: unlimited</span>
-          <span>Paid regeneration: 1 per video</span>
-          {!canRequest && <Badge tone="amber">Next slot opens Monday</Badge>}
+          {staged ? (
+            <>
+              <span>Monthly production budget: <span className="font-medium text-navy">${Number(tier.features?.video_monthly_cap_usd ?? 0).toFixed(2)}</span></span>
+              <span>Up to {maxS} seconds per video</span>
+              <span>The script is free</span>
+              <span>Every paid step shows its price first</span>
+            </>
+          ) : (
+            <>
+              <span>
+                This week: <span className="font-medium text-navy">{usedThisWeek} of {quota}</span> video{quota === 1 ? "" : "s"} used
+              </span>
+              <span>Up to {maxS} seconds per video</span>
+              <span>Free edits: unlimited</span>
+              <span>Paid regeneration: 1 per video</span>
+              {!canRequest && <Badge tone="amber">Next slot opens Monday</Badge>}
+            </>
+          )}
         </CardBody>
       </Card>
 
@@ -159,7 +173,7 @@ export default async function VideosPage() {
           {rows.length === 0 ? (
             <EmptyState
               title="No videos yet"
-              hint="Start with a new video request: you approve a free storyboard before anything is produced."
+              hint={`Start with a new video request: you approve a free ${word} before anything is produced.`}
             />
           ) : (
             <ul className="divide-y">

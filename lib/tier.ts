@@ -10,6 +10,8 @@ export type ClientFeatures = {
   video_regens_per_video: number;
   video_max_duration_s: number;
   video_monthly_cap_usd: number;
+  /** Step-by-step flow: a free script, then every paid step with its price. */
+  video_staged_flow?: boolean;
   voice_consent_at: string | null;
 };
 

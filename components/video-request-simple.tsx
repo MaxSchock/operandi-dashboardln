@@ -16,7 +16,7 @@ const fileId = (f: File) => `${f.name}-${f.size}-${f.type}-${f.lastModified}`;
  * The client's video form: one field saying what should happen, the language
  * and optional files. The engine's agent picks the style, length, message,
  * CTA and (for a dialogue) the lines, and the client checks all of it in the
- * free storyboard (video-engine app/decide.py). Files go up like in the
+ * free script (called storyboard in the older flow) (video-engine app/decide.py). Files go up like in the
  * detailed form, marked "auto": the agent decides what each one is for.
  */
 export function VideoRequestSimple({
@@ -48,6 +48,8 @@ export function VideoRequestSimple({
   const host = characters[0] ?? "our founder";
   const example = `e.g. A customer asks ${host} "How fast can I start?" and ${host} answers that it only takes one call. End with our website.`;
 
+  // One word for one thing: the step-by-step flow calls it the script on every screen.
+  const word = staged ? "script" : "storyboard";
   const [confirm, setConfirm] = useState<FormData | null>(null);
   const hearPrice = staged
     ? Math.round(Math.min(files.filter(f => f.type.startsWith("video/")).length, HEAR_MAX_VIDEOS) * HEAR_USD * 100) / 100
@@ -123,7 +125,7 @@ export function VideoRequestSimple({
           Write it the way you would explain it to a colleague: who is in it ({who}, a customer, your app),
           what they say or do, and how it ends. Words in quotation marks are said exactly as you wrote them.
           We choose the kind of video and its length (up to {maxDurationS} seconds); you see and change
-          everything in the storyboard before anything is produced.
+          everything in the {word} before anything is produced.
         </p>
       </Field>
 
@@ -217,7 +219,7 @@ export function VideoRequestSimple({
       </Field>
 
       <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600">
-        Next step: a free storyboard (about 2 minutes) with the kind of video we chose, the script and the
+        Next step: a free {word} (about 2 minutes) with the kind of video we chose, the script and the
         estimated cost. You can ask for any change there, including a different kind of video.
         {keyframeReview
           ? " Then you approve an image of every shot. Nothing is produced and no budget is used until you approve them."
@@ -235,7 +237,7 @@ export function VideoRequestSimple({
         disabled={!!busy}
         className="rounded-md bg-electric px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
       >
-        {busy ?? "Request storyboard"}
+        {busy ?? `Request ${word}`}
       </button>
     </form>
   );

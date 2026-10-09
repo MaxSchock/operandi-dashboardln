@@ -62,6 +62,20 @@ export async function loadStaged(r: Row, isAdmin: boolean): Promise<StagedData> 
   // The sketch of each shot, until its real picture or take exists.
   const sketches = Object.fromEntries(await Promise.all((boardOf(r)?.shots ?? []).filter(s => s.sketch?.key)
     .map(async s => [String(s.n), { url: await sign(s.sketch!.key), says: s.sketch!.says }] as const)));
+  // Who presents a video with animated scenes, and the photo they are drawn from.
+  const pr = boardOf(r)?.launch?.presenter;
+  let presenter: StagedData["presenter"];
+  if (pr) {
+    const from = pr.from === "photo" || pr.from === "character" ? pr.from : "page";
+    let key: string | null = from === "page" ? pr.key ?? null
+      : from === "photo" ? uploads.find(a => a.kind === "reference_image" && a.storage_key.split("/").pop() === pr.file)?.storage_key ?? null : null;
+    if (from === "character" && pr.name) {
+      const { data: ch } = await svc.from("video_characters").select("sheet_key").eq("client_slug", r.client_slug)
+        .eq("status", "approved").eq("name", pr.name).order("version", { ascending: false }).limit(1);
+      key = (ch?.[0] as { sheet_key?: string | null } | undefined)?.sheet_key ?? null;
+    }
+    presenter = { from, name: pr.name ?? null, url: key ? await sign(key) : null };
+  }
   const held = isHeld(r);
   const versions = r.deliverable_key && !(held && !isAdmin)
     ? await Promise.all(Array.from({ length: r.deliverable_version }, (_, i) => r.deliverable_version - i)
@@ -74,7 +88,7 @@ export async function loadStaged(r: Row, isAdmin: boolean): Promise<StagedData> 
     page: String((r.brief as { product_url?: string } | null)?.product_url ?? "") || undefined,
     board: boardOf(r), montage: (r.montage ?? {}) as Montage,
     spend: spend ? { cap_usd: Number(spend.cap_usd), spent_usd: Number(spend.spent_usd), pending_usd: Number(spend.pending_usd) } : null,
-    images, takes, clips, pictures, sketches, jobs: (jb.data ?? []) as Job[], versions,
+    images, takes, clips, pictures, sketches, presenter, jobs: (jb.data ?? []) as Job[], versions,
     changes: (cr.data ?? []) as StagedData["changes"],
   };
   return data;
