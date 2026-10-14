@@ -82,7 +82,13 @@ export type Board = {
   end_card: { text: string | null; url: string | null };
   pronunciations: Record<string, string>;
   scenes?: Record<string, string>;
-  costs: { image: number; music: number; captions: number; shots: Record<string, { film: number; lips: number; voice: number }> };
+  costs: {
+    image: number; music: number; captions: number;
+    /** The montage, when the engine prices it itself; without it the panel works it out (assemblePrice). */
+    assemble?: number;
+    /** person: another person on the approved take (Wan, and the lips again when it has words); null for a drawn shot. */
+    shots: Record<string, ShotCost>;
+  };
   needs: { n: number; role: "start" | "end" }[];
   advice?: Advice[];
   /** A drawn video: screens the story would need and the client did not upload (nothing is invented in their place). */
@@ -118,12 +124,67 @@ export function whoMissing(b: Board, answers: Record<string, number | null> = {}
   return out;
 }
 
+export type ShotCost = { film: number; lips: number; voice: number; person?: { wan: number; lips: number; total: number } | null };
+/** What filming a shot costs (film, lips, voice), leaving out the change of person, which is not a number. */
+export const shotTotal = (c?: ShotCost | null) => c ? (Number(c.film) || 0) + (Number(c.lips) || 0) + (Number(c.voice) || 0) : 0;
+
+/** Mirror of video-engine review.STT_COST: the finished video is listened to once, when it is assembled. */
+export const MONTAGE_HEAR_USD = 0.10;
+
+/**
+ * What assembling costs (video-engine montage.assemble + montage.heard_before): free to cut, and
+ * the final review transcribes the film once, unless every voiced shot was already heard (captions
+ * timed by captions_stt on the very voice take in use, or the words of the client's own clip).
+ * `takes` are the approved takes.
+ */
+export function assemblePrice(board: Board, montage: Montage,
+  takes: { n: number; audio_key?: string | null; words?: boolean }[]): number {
+  if (typeof board.costs.assemble === "number") return board.costs.assemble;
+  const kept = montage.captions?.shots ?? {};
+  const voiced = shotsInOrder(board).filter(s => s.audio && s.audio !== "none");
+  const heard = voiced.every(s => {
+    const t = takes.find(x => x.n === s.n);
+    const c = kept[String(s.n)];
+    if (c?.source === "stt" && t?.audio_key && c.audio_key === t.audio_key && (c.blocks?.length ?? 0) > 0) return true;
+    return s.kind === "clip" && s.recipe !== "host" && !s.dub && !!t?.words;
+  });
+  return voiced.length === 0 || heard ? 0 : MONTAGE_HEAR_USD;
+}
+
+/** A take's measure after filming (block 5), in one shape: lips.qc (a change of person), lips.phone
+ * (a phone shot), lips.measures (a person or a phone screen), and a mouth that missed the voice. */
+export type TakeMeasure = { ok: boolean; reason: string | null; detail: Record<string, unknown> };
+export function takeMeasure(lips: Take["lips"]): TakeMeasure | null {
+  if (!lips) return null;
+  const l = lips as unknown as Record<string, unknown>;
+  const parts = (["qc", "phone", "measures"] as const).map(k => [k, l[k]] as const)
+    .filter(([, v]) => v && typeof v === "object" && !Array.isArray(v)) as [string, Record<string, unknown>][];
+  const mouth = Array.isArray(l.mouth_fails) ? l.mouth_fails as { what?: string }[] : [];
+  if (!parts.length && !mouth.length) return null;
+  const why: string[] = [];
+  let ok: boolean | null = null;
+  for (const [, v] of parts) {
+    if (v.ok === false) ok = false; else if (v.ok === true && ok === null) ok = true;
+    if (v.ok === false) {
+      if (typeof v.reason === "string" && v.reason) why.push(v.reason);
+      if (Array.isArray(v.defects)) why.push(...(v.defects as unknown[]).map(String));
+      if (Array.isArray(v.fails)) why.push(...(v.fails as { what?: string }[]).map(f => String(f?.what ?? "")).filter(Boolean));
+    }
+  }
+  if (mouth.length) { ok = false; why.push(...mouth.map(f => String(f?.what ?? "")).filter(Boolean)); }
+  if (ok === null) return null;
+  const detail: Record<string, unknown> = Object.fromEntries(parts);
+  if (l.mouth) detail.mouth = l.mouth;
+  if (mouth.length) detail.mouth_fails = mouth;
+  return { ok, reason: ok ? null : Array.from(new Set(why)).join("; ").slice(0, 300) || "did not pass the measure", detail };
+}
+
 export type Take = {
   id: string; shot_n: number; version: number; storage_key: string; frames_prefix: string | null;
   audio_key: string | null; model: string | null; duration_s: number; voice_end_s: number | null;
   status: "proposed" | "approved" | "rejected" | "failed" | "stale"; cost_usd: number; notes: string | null;
   lips: { where?: string | null; done?: boolean; checked?: boolean; reason?: string; check?: string[]; region?: Region;
-    recipe?: string; dub?: string; dub_failed?: string;
+    recipe?: string; dub?: string; dub_failed?: string; words?: unknown[];
     /** A filmed presenter: what the engine saw on the hands (a ring, something held) that the picture does not have. */
     hands?: { ok: boolean; what?: string; at_s?: number; key?: string | null } | null } | null;
 };

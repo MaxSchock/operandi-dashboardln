@@ -6,12 +6,16 @@ import { useRouter } from "next/navigation";
 import { Card, CardHeader, CardBody, Badge } from "@/components/ui";
 import { PayDialog, type MonthSpend } from "@/components/video-pay";
 import { ChangeMarker } from "@/components/video-change-marker";
-import { shotsInOrder, whoMissing, isHost, othersIn, CLIP_MAX_S, LANG_NAMES, TEXT_MAX_CHARS, LAUNCH_MAX_CHARS, HOST_SITE_MAX_CHARS, hasLaunch, canDub, isTextBoard, isLaunchBoard, isDrawn, ON_SCREEN_MAX_CHARS, SAFE_ZONES, LAYOUTS, type Layout, type Safe, type Board, type Job, type Join, type Montage, type Region, type ShotEdit, type StagedShot } from "@/lib/video-staged";
+import { shotsInOrder, whoMissing, isHost, othersIn, CLIP_MAX_S, LANG_NAMES, TEXT_MAX_CHARS, LAUNCH_MAX_CHARS, HOST_SITE_MAX_CHARS, hasLaunch, canDub, isTextBoard, isLaunchBoard, isDrawn, shotTotal, MONTAGE_HEAR_USD, ON_SCREEN_MAX_CHARS, SAFE_ZONES, LAYOUTS, type Layout, type Safe, type Board, type Job, type Join, type Montage, type Region, type ShotEdit, type StagedShot } from "@/lib/video-staged";
 
-type Image = { id: string; n: number; role: "start" | "end"; version: number; status: string; notes: string | null; carried: boolean; url: string };
+type Image = { id: string; n: number; role: "start" | "end"; version: number; status: string; notes: string | null; carried: boolean; url: string;
+  /** The phone with the client's app (a reference the filming copies): its x3 sheet, what to look at, and (admin) the numbers. */
+  ref?: { sheet: string | null; seen: string | null; measures?: Record<string, unknown> } };
 type TakeView = {
   id: string; n: number; version: number; status: string; notes: string | null; duration_s: number; voice_end_s: number | null;
   first_last: boolean; lips: { where: string | null; done: boolean; reason: string | null; dub?: string | null; dub_failed?: string | null } | null; url: string; frames: string[]; checks: string[]; hands?: { what: string; at_s: number; url: string | null } | null;
+  /** The take measured after filming: passed or refused, and why in one line; the numbers for admins. */
+  measure?: { ok: boolean; reason: string | null; detail?: Record<string, unknown> } | null;
 };
 export type StagedData = {
   id: string; status: string; isAdmin: boolean; error: string | null; held: boolean;
@@ -25,6 +29,12 @@ export type StagedData = {
   presenter?: { from: "page" | "photo" | "character"; name: string | null; section?: string | null; url: string | null };
   jobs: Job[]; versions: { version: number; url: string }[];
   changes: { id: string; shot_n: number | null; target: string; note: string | null; region: Region | null; status: string; actor: string; created_at: string }[];
+  /** The final check of the version shown: how much of it was looked at and heard (block 5). */
+  review?: { state: string; version: number; frames_seen: number; frames_total: number; heard: boolean; detail?: Record<string, unknown> } | null;
+  /** Every photo uploaded to this request and the client's approved people: who can be put into an approved take. */
+  photos?: string[]; characters?: string[];
+  /** What assembling costs now: the finished video is listened to once, unless every voice was already heard. */
+  assemble_usd?: number;
 };
 
 const usd = (v: number) => `$${v.toFixed(2)}`;
@@ -75,7 +85,9 @@ function Working({ text, box }: { text: string; box?: boolean }) {
 }
 
 type Ask = { title: string; price: number; body: Record<string, unknown> };
-type Mark = { title: string; src: string; price: number; body: Record<string, unknown>; needNote: boolean; needRegion?: boolean };
+/** person: the shot has an approved take whose person can be changed alone (what = "person"). */
+type Person = { price: number; take: number; photos: string[]; characters: string[]; only?: boolean };
+type Mark = { title: string; src: string; price: number; body: Record<string, unknown>; needNote: boolean; needRegion?: boolean; person?: Person };
 
 export function VideoStaged({ data: served }: { data: StagedData }) {
   const router = useRouter();
@@ -200,7 +212,7 @@ export function VideoStaged({ data: served }: { data: StagedData }) {
       {ask && <PayDialog title={ask.title} price={ask.price} spend={data.spend} busy={busy} onCancel={() => setAsk(null)}
         onConfirm={async () => { await call({ ...ask.body, confirmed_usd: ask.price }); setAsk(null); }} />}
       {mark && <MarkDialog mark={mark} spend={data.spend} busy={busy} onCancel={() => setMark(null)}
-        onConfirm={async extra => { if (await call({ ...mark.body, ...extra, confirmed_usd: mark.price })) setMark(null); }} />}
+        onConfirm={async extra => { if (await call({ ...mark.body, confirmed_usd: mark.price, ...extra })) setMark(null); }} />}
     </div>
   );
 }
@@ -223,24 +235,48 @@ function MarkDialog({ mark, spend, busy, onConfirm, onCancel }: {
 }) {
   const [region, setRegion] = useState<Region | null>(null);
   const [note, setNote] = useState("");
+  const p = mark.person;
+  const [onlyPerson, setOnlyPerson] = useState(!!p?.only);
+  const [who, setWho] = useState("");
   const used = spend ? spend.spent_usd + spend.pending_usd : 0;
-  const ready = (!mark.needNote || note.trim().length >= 3) && (!mark.needRegion || !!region);
+  const swapping = !!p && onlyPerson;
+  const price = swapping ? p!.price : mark.price;
+  const ready = swapping ? !!who : (!mark.needNote || note.trim().length >= 3) && (!mark.needRegion || !!region);
+  const extra = () => swapping
+    ? { what: "person", note: note.trim(), confirmed_usd: p!.price, ...(who.startsWith("photo:") ? { person_ref: who.slice(6) } : { character: who.slice(5) }) }
+    : { note: note.trim(), region };
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-navy/40 p-4" role="dialog" aria-modal="true">
       <div className="mx-auto w-full max-w-lg space-y-3 rounded-2xl bg-white p-5 shadow-xl">
-        <h4 className="font-display text-base text-navy">{mark.title}</h4>
-        <ChangeMarker src={mark.src} region={region} onChange={setRegion} />
-        {mark.needNote && (
+        <h4 className="font-display text-base text-navy">{swapping ? `${mark.title.replace(/ \(paused at .*\)$/, "")}: another person only` : mark.title}</h4>
+        {p && !p.only && (
+          <label className="flex items-start gap-2 text-xs text-slate-700" data-testid="mark-person-only">
+            <input type="checkbox" checked={onlyPerson} onChange={e => setOnlyPerson(e.target.checked)} className="mt-0.5" />
+            <span>Only change the person: the approved take {p.take} stays as it is (movement, voice, timing) and a new take with another person in it is made next to it ({usd(p.price)}).</span>
+          </label>
+        )}
+        {swapping && (
+          <label className="block text-[11px] text-slate-500">Who goes into the take
+            <select value={who} onChange={e => setWho(e.target.value)} className={input} data-testid="mark-person-who">
+              <option value="">Choose a photo or one of your people</option>
+              {p!.photos.map(f => <option key={`p${f}`} value={`photo:${f}`}>Photo {fileName(f)}</option>)}
+              {p!.characters.map(c => <option key={`c${c}`} value={`char:${c}`}>{c}</option>)}
+            </select>
+            {!p!.photos.length && !p!.characters.length && <span className="mt-1 block text-amber-700">Upload a photo of the person to this video first.</span>}
+          </label>
+        )}
+        {!swapping && <ChangeMarker src={mark.src} region={region} onChange={setRegion} />}
+        {mark.needNote && !swapping && (
           <textarea value={note} onChange={e => setNote(e.target.value)} rows={3} data-testid="mark-note"
             placeholder="What should be different? One clear instruction." className="w-full rounded-md border bg-white p-2 text-xs leading-5" />
         )}
         <p className="text-xs text-slate-600">
-          This costs <strong data-testid="pay-price">{usd(mark.price)}</strong>.
-          {spend && ` This month: ${usd(used)} of ${usd(spend.cap_usd)} used.`} The version you have now is kept.
+          This costs <strong data-testid="pay-price">{usd(price)}</strong>.
+          {spend && ` This month: ${usd(used)} of ${usd(spend.cap_usd)} used.`} {swapping ? "The approved take stays approved; you choose between them afterwards." : "The version you have now is kept."}
         </p>
         <div className="flex justify-end gap-2">
           <button type="button" onClick={onCancel} className={`${btn} border text-slate-600`}>Cancel</button>
-          <button type="button" disabled={busy || !ready} data-testid="mark-confirm" onClick={() => onConfirm({ note: note.trim(), region })}
+          <button type="button" disabled={busy || !ready} data-testid="mark-confirm" onClick={() => onConfirm(extra())}
             className={`${btn} bg-emerald-600 text-white`}>{busy ? "Starting..." : "Confirm and start"}</button>
         </div>
       </div>
@@ -407,7 +443,7 @@ function Script({ board, clips, pictures, lang, id, page, presenter, busy, call 
     const c = [...r]; [c[i], c[j]] = [c[j], c[i]]; return c;
   });
   const total = useMemo(() => {
-    const shots = Object.values(board.costs.shots).reduce((a, c) => a + c.film + c.lips + c.voice, 0);
+    const shots = Object.values(board.costs.shots).reduce((a, c) => a + shotTotal(c), 0);
     return (board.needs?.length ?? 0) * board.costs.image + shots + board.costs.music + board.costs.captions;
   }, [board]);
   const send = (approve: boolean) => call({
@@ -488,7 +524,7 @@ function Script({ board, clips, pictures, lang, id, page, presenter, busy, call 
         ))}
         {presenter && rows.some(r => r.site) && (
           <Presenter presenter={presenter} id={id} busy={busy} call={call}
-            price={Math.max(0, ...rows.filter(r => r.site && r.n !== null).map(r => Object.values(board.costs.shots[String(r.n)] ?? {}).reduce((a, b) => a + b, 0)))} />
+            price={Math.max(0, ...rows.filter(r => r.site && r.n !== null).map(r => shotTotal(board.costs.shots[String(r.n)])))} />
         )}
         <div className="space-y-3">
           {rows.map((r, i) => (
@@ -496,7 +532,7 @@ function Script({ board, clips, pictures, lang, id, page, presenter, busy, call 
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs">
                 <span className="font-medium text-navy"><span data-testid="shot-what">{rowWords(r, board)}</span>
                   <span className="font-normal text-slate-500"> · Shot {i + 1}{r.duration_s ? ` · ${r.duration_s.toFixed(1)}s` : " · new"}
-                  {r.n !== null && board.costs.shots[String(r.n)] ? (v => v > 0 ? ` · ${usd(v)}` : " · free")(Object.values(board.costs.shots[String(r.n)]).reduce((a, b) => a + b, 0)) : ""}</span></span>
+                  {r.n !== null && board.costs.shots[String(r.n)] ? (v => v > 0 ? ` · ${usd(v)}` : " · free")(shotTotal(board.costs.shots[String(r.n)])) : ""}</span></span>
                 <span className="flex gap-1">
                   <button type="button" className={`${btn} border`} disabled={i === 0} onClick={() => move(i, -1)} aria-label="Move up">↑</button>
                   <button type="button" className={`${btn} border`} disabled={i === rows.length - 1} onClick={() => move(i, 1)} aria-label="Move down">↓</button>
@@ -692,6 +728,7 @@ function Images({ data, board, busy, call, pay, setMark, jobOf }: Common & { dat
                           <a href={i.url} target="_blank" rel="noreferrer"><img src={i.url} alt="" className={`w-32 rounded-md border-2 ${i.status === "approved" ? "border-emerald-500" : "border-transparent"}`} /></a>
                           <figcaption className="text-slate-500">v{i.version}{i.carried ? " · from the shot before" : ""}{i.status === "approved" ? " · approved" : ""}</figcaption>
                           {i.notes && <div className="text-slate-400">{i.notes}</div>}
+                          {i.ref && <PhoneRef img={i} admin={data.isAdmin} />}
                           {i.status !== "approved" && <button type="button" disabled={busy} className={`${btn} border text-slate-700`} data-testid="image-pick"
                             onClick={() => call({ action: "image_pick", keyframe: i.id })}>Use this one</button>}
                         </figure>
@@ -778,6 +815,11 @@ function ShotCard({ s, data, board, busy, call, pay, setMark, jobOf, price }: Co
   const said = s.kind === "clip" && s.dub?.text ? s.dub.text : s.text;
   const dubLang = dubbed ? LANG_NAMES[s.dub!.lang] ?? s.dub!.lang : "";
   const dubPrice = Math.round(((board.costs.shots[String(s.n)]?.lips ?? 0) + (board.costs.shots[String(s.n)]?.voice ?? 0)) * 100) / 100;
+  // Another person on the approved take, nothing else filmed again (engine stage._film_person).
+  const approvedTake = list.find(t => t.status === "approved");
+  const personCost = board.costs.shots[String(s.n)]?.person;
+  const person: Person | undefined = approvedTake && personCost && !isText
+    ? { price: Math.round(personCost.total * 100) / 100, take: approvedTake.version, photos: data.photos ?? [], characters: data.characters ?? [] } : undefined;
   return (
     <div className="space-y-2 border-b pb-4 last:border-0" data-testid={`shot-${s.n}`}>
       <div className="text-xs font-medium text-navy">Shot {label} <span className="font-normal text-slate-500">{s.speaker ? `${s.speaker}: ` : ""}{said}</span></div>
@@ -794,6 +836,7 @@ function ShotCard({ s, data, board, busy, call, pay, setMark, jobOf, price }: Co
               ))}
             </div>
             <div>{take.duration_s.toFixed(1)}s{take.notes ? ` · ${take.notes}` : ""}</div>
+            {take.measure && <Measured m={take.measure} admin={data.isAdmin} />}
             {take.lips && !host && !take.lips.done && take.status !== "stale" && (
               <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-amber-800">
                 The lips were not moved: the face that speaks could not be found safely{take.lips.reason ? ` (${take.lips.reason})` : ""}. Nothing was charged for them.
@@ -832,8 +875,11 @@ function ShotCard({ s, data, board, busy, call, pay, setMark, jobOf, price }: Co
                   onClick={() => pay(`Put the person into shot ${label} again`, price, { action: "film", shot: s.n })}>
                   Make it again ({usd(price)})</button>}
                 {!isClip && !isText && (host || take.frames.length > 0) && !job && <button type="button" disabled={busy} className={`${btn} border text-slate-700`} data-testid="take-refilm"
-                  onClick={() => { const f = frameAt(); setMark({ title: `Film shot ${label} again (paused at ${f.frame_s.toFixed(1)}s)`, src: f.src, price, needNote: true, body: { action: "film", shot: s.n, frame_s: f.frame_s } }); }}>
+                  onClick={() => { const f = frameAt(); setMark({ title: `Film shot ${label} again (paused at ${f.frame_s.toFixed(1)}s)`, src: f.src, price, needNote: true, person, body: { action: "film", shot: s.n, frame_s: f.frame_s } }); }}>
                   Film again with a note ({usd(price)})</button>}
+                {isClip && person && !job && <button type="button" disabled={busy} className={`${btn} border text-slate-700`} data-testid="take-person"
+                  onClick={() => { const f = frameAt(); setMark({ title: `Shot ${label}`, src: f.src ?? take.url, price: person.price, needNote: false, person: { ...person, only: true }, body: { action: "film", shot: s.n } }); }}>
+                  Put another person into the approved take ({usd(person.price)})</button>}
               </div>
             )}
           </div>
@@ -885,16 +931,20 @@ function MontagePanel({ data, board, busy, call, pay, jobOf }: Common & { data: 
   });
   const timed = shots.filter(s => s.audio !== "none").every(s => m.captions?.shots?.[String(s.n)]?.source);
   const latest = data.versions[0];
+  // A caption changed by hand is no longer what the transcription heard: the final review listens again.
+  const capsEdited = JSON.stringify(caps) !== JSON.stringify(m.captions?.shots ?? {});
+  const montagePrice = Math.round(((data.assemble_usd ?? 0) === 0 && capsEdited && typeof board.costs.assemble !== "number" ? MONTAGE_HEAR_USD : data.assemble_usd ?? 0) * 100) / 100;
 
   return (
     <Card>
-      <CardHeader title="4 · Montage" hint="Order, joins, music and captions. Assembling is free and as often as you like: every time gives a new version and the earlier ones stay." />
+      <CardHeader title="4 · Montage" hint={`Order, joins, music and captions. Assemble as often as you like: every time gives a new version and the earlier ones stay. ${montagePrice > 0 ? `Each assembly costs ${usd(montagePrice)}: the finished video is listened to once to check every word is heard.` : "Assembling is free now: the voices were already heard when the captions were timed."}`} />
       <CardBody className="space-y-5">
         {latest && (
           <div className="flex flex-wrap items-start gap-4" data-testid="deliverable">
             <video key={latest.url} src={latest.url} controls playsInline preload="metadata" className="w-56 rounded-md border bg-black" />
             <div className="space-y-1 text-xs text-slate-600">
               <div className="font-medium text-navy">Version {latest.version}{data.held ? " (held by the final check)" : ""}</div>
+              {data.review && data.review.version === latest.version && <Reviewed r={data.review} admin={data.isAdmin} />}
               <a href={latest.url} className="underline" download>Download</a>
               {data.versions.slice(1).map(v => <div key={v.version}><a href={v.url} target="_blank" rel="noreferrer" className="text-slate-500 underline">Version {v.version}</a></div>)}
             </div>
@@ -978,11 +1028,64 @@ function MontagePanel({ data, board, busy, call, pay, jobOf }: Common & { data: 
 
         <div className="flex flex-wrap items-center gap-2 border-t pt-4">
           <button type="button" disabled={busy} className={`${btn} bg-emerald-600 text-white`} data-testid="assemble"
-            onClick={() => call({ action: "assemble", ...body() })}>{latest ? "Assemble again" : "Assemble the video"}</button>
+            onClick={() => pay(latest ? "Assemble the video again" : "Assemble the video", montagePrice, { action: "assemble", ...body() })}>
+            {latest ? "Assemble again" : "Assemble the video"} ({montagePrice > 0 ? usd(montagePrice) : "free"})</button>
           <button type="button" disabled={busy} className={`${btn} border text-slate-700`} data-testid="montage-save" onClick={() => call({ action: "montage_save", ...body() })}>Save without assembling</button>
-          <span className="text-[11px] text-slate-400">{data.status === "assembling" ? "Being assembled, about two minutes." : "Free."}</span>
+          <span className="text-[11px] text-slate-400">{data.status === "assembling" ? "Being assembled, about two minutes." : montagePrice > 0 ? `${usd(montagePrice)}: the finished video is listened to once. Saving is free.` : "Free."}</span>
         </div>
       </CardBody>
     </Card>
+  );
+}
+
+/** The phone with the client's app: the sheet three times larger, what to look at, and (admin) the numbers. */
+function PhoneRef({ img, admin }: { img: Image; admin: boolean }) {
+  const [open, setOpen] = useState(false);
+  const ref = img.ref!;
+  return (
+    <div className="space-y-1" data-testid="phone-ref">
+      {ref.sheet && <button type="button" onClick={() => setOpen(true)} className="text-left text-electric underline" data-testid="phone-ref-open">See it enlarged x3</button>}
+      {ref.seen && <p className="text-slate-500">{ref.seen}</p>}
+      {admin && ref.measures && <AdminNumbers what="Measures (admin)" data={ref.measures} />}
+      {open && ref.sheet && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-navy/70 p-4" role="dialog" aria-modal="true" onClick={() => setOpen(false)} data-testid="phone-ref-large">
+          <div className="mx-auto max-w-5xl space-y-2 rounded-md bg-white p-3 text-xs text-slate-700">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={ref.sheet} alt="The phone picture three times larger, with its grid and measures" className="w-full rounded" />
+            {ref.seen && <p>{ref.seen}</p>}
+            <p className="text-slate-400">Tap anywhere to close.</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The measure of a take after filming, in one line; the numbers for admins. */
+function Measured({ m, admin }: { m: NonNullable<TakeView["measure"]>; admin: boolean }) {
+  return (
+    <div className={`rounded-md border px-2 py-1 ${m.ok ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-red-200 bg-red-50 text-red-700"}`} data-testid="take-measure" data-ok={m.ok ? "1" : "0"}>
+      {m.ok ? "Measured: correct." : `Measured: refused. ${m.reason ?? ""}`}
+      {admin && m.detail && <AdminNumbers what="Numbers (admin)" data={m.detail} />}
+    </div>
+  );
+}
+
+/** How much the final check of this version rests on. */
+function Reviewed({ r, admin }: { r: NonNullable<StagedData["review"]>; admin: boolean }) {
+  return (
+    <div className="text-[11px] text-slate-500" data-testid="final-reviewed">
+      Checked: {r.frames_seen} of {r.frames_total} frames looked at, sound listened to: {r.heard ? "yes" : "no"}.
+      {admin && r.detail && <AdminNumbers what="Final check numbers (admin)" data={r.detail} />}
+    </div>
+  );
+}
+
+function AdminNumbers({ what, data }: { what: string; data: unknown }) {
+  return (
+    <details className="text-[10px] text-slate-500">
+      <summary className="cursor-pointer">{what}</summary>
+      <pre className="max-h-48 max-w-xs overflow-auto whitespace-pre-wrap break-all">{JSON.stringify(data, null, 1).slice(0, 4000)}</pre>
+    </details>
   );
 }

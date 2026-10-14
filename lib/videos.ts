@@ -35,6 +35,14 @@ export type FinalReview = {
   skipped?: string[];
   at?: string;
   released_at?: string;
+  /** Since block 5: how much a "passed" rests on (frames looked at, sound heard) and the numbers behind it. */
+  frames_seen?: number;
+  frames_total?: number;
+  heard?: boolean;
+  measures?: unknown;
+  lines?: unknown;
+  levels?: unknown;
+  cost_usd?: number;
 };
 
 /** A delivered video the final check stopped: only admins see it until one releases it. */

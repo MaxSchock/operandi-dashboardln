@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createClient, serviceRoleClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardBody, Badge, EmptyState } from "@/components/ui";
 import { ActionForm } from "@/components/action-form";
 
@@ -8,10 +8,13 @@ export default async function AdminClientDetail({ params }: { params: Promise<{ 
   const { slug } = await params;
   const sb = await createClient();
 
-  const [{ data: arms }, { data: actions }] = await Promise.all([
+  const [{ data: arms }, { data: actions }, { data: caps }] = await Promise.all([
     sb.from("bandit_arms").select("*").eq("client_slug", slug).order("dimension").order("key"),
     sb.from("lead_actions").select("id, action_type, status, scheduled_for, policy_reason, created_at").eq("client_slug", slug).order("created_at", { ascending: false }).limit(50),
+    serviceRoleClient().schema("outreach").from("client_features").select("video_enabled, video_request_cap_usd, video_token_cap_usd")
+      .eq("client_slug", slug).maybeSingle(),
   ]);
+  const cap = (v: unknown) => (v === null || v === undefined ? "" : String(Number(v)));
 
   return (
     <div className="space-y-6">
@@ -29,6 +32,31 @@ export default async function AdminClientDetail({ params }: { params: Promise<{ 
           </ActionForm>
         </div>
       </header>
+
+      {caps && (
+        <Card>
+          <CardHeader title="Video spending caps per request" hint={caps.video_enabled ? undefined : "Video is off for this client."} />
+          <CardBody>
+            <ActionForm action={`/api/admin/override/video-caps?slug=${slug}`} working="Saving..." done="Caps saved." said={{ video_caps_saved: "Caps saved." }} testid="video-caps">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block text-xs text-slate-600">Providers per video, USD (video_request_cap_usd)
+                  <input name="video_request_cap_usd" inputMode="decimal" defaultValue={cap(caps.video_request_cap_usd)} placeholder="default"
+                    className="mt-1 w-full rounded-md border bg-white px-2 py-1 text-sm" />
+                </label>
+                <label className="block text-xs text-slate-600">Model tokens per video, USD (video_token_cap_usd)
+                  <input name="video_token_cap_usd" inputMode="decimal" defaultValue={cap(caps.video_token_cap_usd)} placeholder="default"
+                    className="mt-1 w-full rounded-md border bg-white px-2 py-1 text-sm" />
+                </label>
+              </div>
+              <p className="mt-2 text-[11px] text-slate-500">
+                Empty: the default, 3 $ or the estimate the client approved plus 15 %, whichever is higher (tokens: 3 $).
+                0: no cap for this client. A step that would go over the cap is not run, and the job shows why.
+              </p>
+              <button className="mt-2 rounded-md bg-navy px-3 py-1.5 text-xs font-medium text-white">Save caps</button>
+            </ActionForm>
+          </CardBody>
+        </Card>
+      )}
 
       <Card>
         <CardHeader title="Bandit arms" />

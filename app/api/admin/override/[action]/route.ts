@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient, serviceRoleClient } from "@/lib/supabase/server";
 import { answer } from "@/lib/form-answer";
 
-const ALLOWED = new Set(["pause-autopilot", "freeze-arm", "force-topup", "cancel-action"]);
+const ALLOWED = new Set(["pause-autopilot", "freeze-arm", "force-topup", "cancel-action", "video-caps"]);
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ action: string }> }) {
   const { action } = await ctx.params;
@@ -67,6 +67,28 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ action: st
     if (r.error) return failed("cancel-action", r.error.message);
     if (!r.data?.length) return failed("cancel-action", `no action with id ${id}`);
     return answer(req, new URL(req.headers.get("referer") ?? "/admin", req.url));
+  }
+
+  if (action === "video-caps") {
+    // What one video request may cost (video-engine caps.py): empty = the engine default, 0 = no cap.
+    const slug = url.searchParams.get("slug");
+    if (!slug) return NextResponse.json({ error: "slug required" }, { status: 400 });
+    const form = await req.formData().catch(() => null);
+    const read = (name: string): number | null | undefined => {
+      const raw = String(form?.get(name) ?? "").trim().replace(",", ".");
+      if (raw === "") return null;
+      const v = Number(raw);
+      return Number.isFinite(v) && v >= 0 && v <= 10000 ? Math.round(v * 100) / 100 : undefined;
+    };
+    const request = read("video_request_cap_usd"), token = read("video_token_cap_usd");
+    if (request === undefined || token === undefined) {
+      return NextResponse.json({ error: "Write an amount in dollars (0 or more), or leave it empty for the default." }, { status: 400 });
+    }
+    const r = await adminSb.schema("outreach").from("client_features")
+      .update({ video_request_cap_usd: request, video_token_cap_usd: token }).eq("client_slug", slug).select("client_slug");
+    if (r.error) return failed("video-caps", r.error.message);
+    if (!r.data?.length) return failed("video-caps", `${slug} has no row in client_features`);
+    return answer(req, new URL(`/admin/clients/${slug}?notice=video_caps_saved`, req.url));
   }
 
   return NextResponse.json({ error: "unhandled" }, { status: 500 });

@@ -5,7 +5,7 @@ import { loadStaged, type Row as StagedRow } from "@/lib/video-staged-load";
 import {
   isStaged, boardOf, shotsInOrder, shotsOfPerson, enqueue, cleanRegion, applyScriptEdits, cleanMontage, whoMissing, personClip, isHost,
   type Board, type Montage, type ShotEdit, type Take,
-  isDrawn,
+  isDrawn, assemblePrice,
 } from "@/lib/video-staged";
 
 /**
@@ -207,6 +207,23 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const s = shot(body.shot);
     if (!s) return bad("shot not found", 404);
     const c = board.costs.shots[String(s.n)] ?? { film: 0, lips: 0, voice: 0 };
+    if (body.what === "person") {
+      // Another person on the approved take, nothing else filmed again (engine stage._film_person):
+      // the new take is proposed next to the approved one, never in its place.
+      if (isDrawn(s.kind) || !c.person) return bad("there is no person in this shot to change");
+      const { count: ok } = await svc.from("video_shot_takes").select("id", { count: "exact", head: true })
+        .eq("request_id", request.id).eq("shot_n", s.n).eq("status", "approved");
+      if (!ok) return bad("approve a take of this shot first: before that, the person is changed in its picture");
+      const ref = String(body.person_ref ?? "").trim().slice(0, 200);
+      const character = String(body.character ?? "").trim().slice(0, 120);
+      if (!ref === !character) return bad("choose one photo or one of your people");
+      const price = Math.round(c.person.total * 100) / 100;
+      if (!paid(price)) return bad(STALE, 409);
+      if (await working("shot_film", s.n)) return bad(BUSY, 409);
+      const note = String(body.note ?? "").trim().slice(0, 600);
+      return queued(await enqueue(svc, request, actor, "shot_film", { shot: s.n, estimate: price,
+        params: { what: "person", note, ...(ref ? { person_ref: ref } : { character }) } }));
+    }
     const onlyLips = body.what === "lips";
     // A new presenter is filmed like any other shot (a note says what to change); a stretch of the clip is not.
     const isClip = s.kind === "clip" && !isHost(s);
@@ -275,7 +292,12 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const upd = await svc.from("video_requests").update(patch).eq("id", request.id).eq("status", request.status).select("id");
     if (upd.error || !upd.data?.length) return bad(upd.error?.message ?? "the video changed, reload the page", 409);
     if (action === "montage_save") return NextResponse.json({ ok: true });
-    return queued(await enqueue(svc, request, actor, "assemble"));
+    // The cut is free; the final review listens to the film once (review.STT_COST) unless every voice was heard.
+    const { data: ok } = await svc.from("video_shot_takes").select("shot_n, audio_key, lips").eq("request_id", request.id).eq("status", "approved");
+    const price = assemblePrice((patch.storyboard as Board | undefined) ?? board, (patch.montage ?? old) as Montage,
+      ((ok ?? []) as Pick<Take, "shot_n" | "audio_key" | "lips">[]).map(t => ({ n: t.shot_n, audio_key: t.audio_key, words: (t.lips?.words?.length ?? 0) > 0 })));
+    if (!paid(price)) return bad(STALE, 409);
+    return queued(await enqueue(svc, request, actor, "assemble", { estimate: price }));
   }
 
   if (action === "captions") {

@@ -1,14 +1,15 @@
 import { serviceRoleClient } from "@/lib/supabase/server";
 import { presignGet } from "@/lib/minio";
 import { isHeld, type FinalReview } from "@/lib/videos";
-import { boardOf, type Job, type Montage, type Take } from "@/lib/video-staged";
+import { boardOf, assemblePrice, takeMeasure, type Job, type Montage, type Take } from "@/lib/video-staged";
 import type { StagedData } from "@/components/video-staged";
 
 export type Row = {
   id: string; client_slug: string; status: string; brief: Record<string, unknown>; storyboard: unknown; montage?: Montage | null;
   deliverable_key: string | null; deliverable_version: number; error: string | null; final_review: FinalReview | null;
 };
-type Kf = { id: string; shot_n: number; role: "start" | "end"; version: number; status: string; storage_key: string | null; notes: string | null; model: string | null };
+type Kf = { id: string; shot_n: number; role: "start" | "end"; version: number; status: string; storage_key: string | null; notes: string | null; model: string | null;
+  qc: { sheet_key?: string | null; seen?: string | null; measures?: Record<string, unknown> | null } | null };
 
 /** Everything the step-by-step page shows for one request, links signed. The
  * caller already proved (RLS) that this user may see the request. The page
@@ -16,8 +17,8 @@ type Kf = { id: string; shot_n: number; role: "start" | "end"; version: number; 
  * the same shape while a job runs, updating only what changed. */
 export async function loadStaged(r: Row, isAdmin: boolean): Promise<StagedData> {
   const svc = serviceRoleClient();
-  const [kf, tk, jb, cr, sp, up] = await Promise.all([
-    svc.from("video_keyframes").select("id, shot_n, role, version, status, storage_key, notes, model").eq("request_id", r.id).order("version", { ascending: false }),
+  const [kf, tk, jb, cr, sp, up, ch] = await Promise.all([
+    svc.from("video_keyframes").select("id, shot_n, role, version, status, storage_key, notes, model, qc").eq("request_id", r.id).order("version", { ascending: false }),
     svc.from("video_shot_takes").select("*").eq("request_id", r.id).order("version", { ascending: false }),
     svc.from("video_jobs").select("id, kind, shot_n, role, status, cost_estimate_usd, cost_actual_usd, error, created_at, result")
       .eq("request_id", r.id).order("created_at", { ascending: false }).limit(40),
@@ -25,11 +26,17 @@ export async function loadStaged(r: Row, isAdmin: boolean): Promise<StagedData> 
       .eq("request_id", r.id).order("created_at", { ascending: false }).limit(40) : Promise.resolve({ data: [] }),
     svc.rpc("video_month_spend", { p_client: r.client_slug }),
     svc.from("video_assets").select("storage_key, kind, meta").eq("request_id", r.id).in("kind", ["reference_video", "reference_image"]),
+    svc.from("video_characters").select("name").eq("client_slug", r.client_slug).eq("status", "approved"),
   ]);
   const sign = (key: string) => presignGet(key, 3600);
   const images = await Promise.all(((kf.data ?? []) as Kf[]).filter(k => k.storage_key && k.status !== "failed").map(async k => ({
     id: k.id, n: k.shot_n, role: k.role, version: k.version, status: k.status, notes: k.notes,
     carried: k.model === "continuity", url: await sign(k.storage_key!),
+    // The phone with the client's app (block 6): a sheet three times larger with its grid and
+    // measures, what to look at in plain words, and the numbers for the administrator.
+    ...(k.model === "screen_ref" && k.qc ? { ref: {
+      sheet: k.qc.sheet_key ? await sign(k.qc.sheet_key) : null, seen: k.qc.seen ?? null,
+      ...(isAdmin && k.qc.measures ? { measures: k.qc.measures } : {}) } } : {}),
   })));
   const rows = ((tk.data ?? []) as Take[]).filter(t => t.status !== "failed" && t.storage_key);
   const newest = new Set<string>();
@@ -48,6 +55,7 @@ export async function loadStaged(r: Row, isAdmin: boolean): Promise<StagedData> 
       hands: t.lips?.hands && t.lips.hands.ok === false
         ? { what: t.lips.hands.what ?? "a ring", at_s: Number(t.lips.hands.at_s ?? 0), url: t.lips.hands.key ? await sign(t.lips.hands.key) : null } : null,
       checks: isAdmin ? await Promise.all((t.lips?.check ?? []).slice(0, 3).map(sign)) : [],
+      measure: (m => m ? { ok: m.ok, reason: m.reason, ...(isAdmin ? { detail: m.detail } : {}) } : null)(takeMeasure(t.lips)),
     };
   }));
   // The client's own clips, by file name: a shot made from one shows its stretch.
@@ -81,6 +89,14 @@ export async function loadStaged(r: Row, isAdmin: boolean): Promise<StagedData> 
     ? await Promise.all(Array.from({ length: r.deliverable_version }, (_, i) => r.deliverable_version - i)
       .map(async v => ({ version: v, url: await sign(`deliverables/${r.id}/v${v}.mp4`) })))
     : [];
+  const board = boardOf(r);
+  const approvedTakes = rows.filter(t => t.status === "approved")
+    .map(t => ({ n: t.shot_n, audio_key: t.audio_key, words: (t.lips?.words?.length ?? 0) > 0 }));
+  const fr = r.final_review;
+  const review: StagedData["review"] = fr && typeof fr.frames_total === "number" && fr.version === r.deliverable_version ? {
+    state: fr.state, version: fr.version, frames_seen: Number(fr.frames_seen ?? 0), frames_total: Number(fr.frames_total), heard: !!fr.heard,
+    ...(isAdmin ? { detail: { measures: fr.measures ?? null, lines: fr.lines ?? null, levels: fr.levels ?? null, cost_usd: fr.cost_usd ?? null } } : {}),
+  } : null;
   const spend = sp.data as { cap_usd: number; spent_usd: number; pending_usd: number } | null;
   const data: StagedData = {
     lang: String((r.brief as { language?: string } | null)?.language ?? "").toLowerCase() || undefined,
@@ -88,7 +104,10 @@ export async function loadStaged(r: Row, isAdmin: boolean): Promise<StagedData> 
     page: String((r.brief as { product_url?: string } | null)?.product_url ?? "") || undefined,
     board: boardOf(r), montage: (r.montage ?? {}) as Montage,
     spend: spend ? { cap_usd: Number(spend.cap_usd), spent_usd: Number(spend.spent_usd), pending_usd: Number(spend.pending_usd) } : null,
-    images, takes, clips, pictures, sketches, presenter, jobs: (jb.data ?? []) as Job[], versions,
+    images, takes, clips, pictures, sketches, presenter, jobs: (jb.data ?? []) as Job[], versions, review,
+    photos: uploads.filter(a => a.kind === "reference_image" && /\.(jpe?g|png|webp)$/i.test(a.storage_key)).map(a => a.storage_key.split("/").pop()!),
+    characters: Array.from(new Set(((ch.data ?? []) as { name: string | null }[]).map(c => c.name).filter((x): x is string => !!x))),
+    assemble_usd: board ? assemblePrice(board, (r.montage ?? {}) as Montage, approvedTakes) : 0,
     changes: (cr.data ?? []) as StagedData["changes"],
   };
   return data;
