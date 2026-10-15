@@ -1,6 +1,6 @@
 """Open production pages as the E2E canary user, print whether each needle is on the page, and screenshot.
 Usage: python3 scripts-e2e/prod-canary-shot.py /videos/new "15-30s recommended" "Some other text"
-Needs cookies first: node scripts-e2e/prod-canary-cookies.js
+Needs cookies first: node scripts-e2e/prod-canary-cookies.js (E2E_COOKIES=<file> for another user, e.g. the admin canary)
 """
 import sys, json, os
 sys.path.insert(0, os.path.expanduser("~/.config"))
@@ -9,7 +9,7 @@ from playwright.sync_api import sync_playwright
 
 BASE = "https://dashboardln.operandiconsultancy.com"
 route, needles = sys.argv[1], sys.argv[2:]
-cookies = json.load(open("/tmp/e2e/prod-cookies.json"))
+cookies = json.load(open(os.environ.get("E2E_COOKIES") or "/tmp/e2e/prod-cookies.json"))
 os.makedirs("/tmp/e2e/shots", exist_ok=True)
 with sync_playwright() as p:
     b = p.chromium.launch(headless=True, executable_path=chromium_exe(), args=["--no-sandbox", "--disable-dev-shm-usage"])
