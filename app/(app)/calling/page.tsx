@@ -190,8 +190,11 @@ export default async function CallingPage({ searchParams }: { searchParams: Prom
   const counts = Object.fromEntries(TABS.map(t => [t, filtered.filter(v => inTab(v, t)).length])) as Record<CallingTab, number>;
   const rows = filtered.filter(v => inTab(v, tab)).sort(sorter(tab));
 
-  const todayKey = new Date().toISOString().slice(0, 10);
-  const calledToday = ((callRows ?? []) as CallEvent[]).filter(c => c.occurred_at.startsWith(todayKey)).length;
+  // "Today" is the Madrid calendar day (what the caller sees), not the UTC one: between 00:00 and 02:00
+  // Madrid, and on DST days, the UTC date is a different day.
+  const madridDay = (t: string | Date) => new Date(t).toLocaleDateString("sv-SE", { timeZone: "Europe/Madrid" });
+  const todayKey = madridDay(new Date());
+  const calledToday = ((callRows ?? []) as CallEvent[]).filter(c => madridDay(c.occurred_at) === todayKey).length;
   const clientsSeen = Array.from(new Set(views.map(v => v.r.client_slug))).sort();
   const uploadClient = client !== "all" ? client : (clientsSeen[0] ?? "zayd");
   const qs = (t: CallingTab) => {

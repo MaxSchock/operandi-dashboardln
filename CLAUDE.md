@@ -26,3 +26,11 @@ Checked live with the canary: `content` (date saved in place) and the absence of
 ## Checks before pushing
 
 `node node_modules/typescript/bin/tsc --noEmit -p .` (the `.bin/tsc` link is broken on this checkout). Pushing `main` deploys to production; look at the result with the canary user (`scripts-e2e/prod-canary-cookies.js`, then `scripts-e2e/prod-canary-shot.py <route> "<needle>"`), never by asking Max to check a screen.
+
+## Review chain before a push to `main` (since 2026-10-15)
+
+1. `node node_modules/typescript/bin/tsc --noEmit -p .` clean.
+2. The suite of the package you touched (`npm test` where it exists; the e2e canary scripts for pages).
+3. A read-only review of the diff by Codex (Astra): it reviews, it never writes code or runs against production.
+4. Push, then the canary user looks at the changed page in production (`scripts-e2e/prod-canary-cookies.js` + `prod-canary-shot.py`). Max is never asked to check a screen.
+Dates shown to people are Madrid wall clock (`toLocaleDateString("sv-SE", { timeZone: "Europe/Madrid" })`), never `toISOString().slice(0, 10)`.

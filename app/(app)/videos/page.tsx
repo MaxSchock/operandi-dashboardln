@@ -66,9 +66,12 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 function isoWeekStart(d: Date): string {
-  const day = (d.getUTCDay() + 6) % 7;
-  const monday = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - day));
-  return monday.toISOString().slice(0, 10);
+  // Monday of the week as seen on a Madrid calendar (the client's week), not the UTC week:
+  // a request made on Sunday 23:30 Madrid is still this week, although it is Monday in UTC.
+  const [y, m, day] = new Date(d).toLocaleDateString("sv-SE", { timeZone: "Europe/Madrid" }).split("-").map(Number);
+  const local = new Date(Date.UTC(y, m - 1, day));
+  local.setUTCDate(local.getUTCDate() - ((local.getUTCDay() + 6) % 7));
+  return local.toISOString().slice(0, 10);
 }
 
 export default async function VideosPage() {
