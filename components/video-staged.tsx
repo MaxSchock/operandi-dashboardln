@@ -175,7 +175,25 @@ export function VideoStaged({ data: served }: { data: StagedData }) {
           {failed.map(j => <div key={j.id}>{JOB_LABEL[j.kind] ?? j.kind}{j.shot_n ? ` (shot ${shotLabel(board, j.shot_n)})` : ""} did not work: {j.error ?? "unknown reason"}</div>)}
         </div>
       )}
-      {!board && <Card><CardBody><p className="text-sm text-slate-600">The shots are being written. This takes about a minute.</p></CardBody></Card>}
+      {/* A video delivered by hand (no shots written in the panel) still has its versions: show them instead of a script that will never come. */}
+      {!board && data.versions.length > 0 && (
+        <Card>
+          <CardHeader title="Your video" hint="Delivered. Every version stays available." />
+          <CardBody>
+            <div className="flex flex-wrap items-start gap-4" data-testid="deliverable">
+              <video key={data.versions[0].url} src={data.versions[0].url} controls playsInline preload="metadata" className="w-56 rounded-md border bg-black" />
+              <div className="space-y-1 text-xs text-slate-600">
+                <div className="font-medium text-navy">Version {data.versions[0].version}{data.held ? " (held by the final check)" : ""}</div>
+                {data.review && data.review.version === data.versions[0].version && <Reviewed r={data.review} admin={data.isAdmin} />}
+                <a href={data.versions[0].url} className="underline" download>Download</a>
+                {data.versions.slice(1).map(v => <div key={v.version}><a href={v.url} target="_blank" rel="noreferrer" className="text-slate-500 underline">Version {v.version}</a></div>)}
+              </div>
+            </div>
+          </CardBody>
+        </Card>
+      )}
+      {!board && data.versions.length === 0 && data.held && <Card><CardBody><p className="text-sm text-slate-600">The video is being checked. You get word as soon as it is ready.</p></CardBody></Card>}
+      {!board && data.versions.length === 0 && !data.held && <Card><CardBody><p className="text-sm text-slate-600">The shots are being written. This takes about a minute.</p></CardBody></Card>}
 
       {board && status === "script_ready" && <Script key={JSON.stringify(board.shots) + JSON.stringify(board.proposals) + JSON.stringify(board.clip_people ?? {})} board={board} clips={data.clips} pictures={data.pictures} lang={data.lang} id={data.id} page={data.page} presenter={data.presenter} busy={busy || !!jobOf("script_apply") || !!jobOf("script_propose")} call={call} />}
       {board && stage > 2 && <ScriptSummary board={board} />}
