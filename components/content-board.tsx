@@ -479,6 +479,13 @@ const PostCard = memo(function PostCard({ r, isAdmin, ownSlug, onDone }: { r: Ca
   const [done, setDone] = useState<string | null>(null);
 
   const img = r.image_url_imgbb || r.image_url_source;
+  // imgbb goes down now and then and serves its own "service unavailable" tile, so the
+  // reviewer approved blind (28-10). If the imgbb copy errors or loads as a thumbnail-sized
+  // tile (generated posts are ~900 px wide), show the original on fal instead.
+  const [imgFailed, setImgFailed] = useState<string | null>(null);
+  const fallback = r.image_url_source && r.image_url_source !== img ? r.image_url_source : null;
+  const shownImg = imgFailed === img && fallback ? fallback : img;
+  const onImgBad = () => { if (shownImg === img && fallback) setImgFailed(img); };
   const textOnly = (r.post_type ?? "").toLowerCase() === "text";
   // A post is only eligible for publish when BOTH sides are approved (publish.py
   // skips image posts whose col F isn't Approved). Deriving the badge from
@@ -536,8 +543,10 @@ const PostCard = memo(function PostCard({ r, isAdmin, ownSlug, onDone }: { r: Ca
         ) : imageRemaking ? (
           <Working box text={img ? "A new image is being drawn. It appears here in a few minutes." : "The image is being drawn. It appears here in a few minutes."} />
         ) : img ? (
-          <a href={img} target="_blank" rel="noreferrer" className="shrink-0">
-            <img src={img} alt="post" className="h-40 w-40 rounded-md border object-cover" />
+          <a href={shownImg ?? img} target="_blank" rel="noreferrer" className="shrink-0">
+            <img src={shownImg ?? img} alt="post" className="h-40 w-40 rounded-md border object-cover"
+              onError={onImgBad}
+              onLoad={ev => { if (ev.currentTarget.naturalWidth < 400) onImgBad(); }} />
           </a>
         ) : textOnly ? (
           <div className="grid h-40 w-40 shrink-0 place-items-center rounded-md border border-dashed bg-slate-50 text-center text-[10px] leading-4 text-slate-400">
