@@ -567,6 +567,7 @@ const PostCard = memo(function PostCard({ r, isAdmin, ownSlug, onDone }: { r: Ca
               <Badge tone="amber">⚠ overdue ({dateOnly(r.scheduled_for)}) — {fullyApproved ? "publishes on the next run" : "approve to publish"}</Badge>
             )}
             {r.pain_label && <Badge tone="electric">{r.pain_label.slice(0, 40)}</Badge>}
+            {r.style && <Badge tone="slate">Style: {(r.style_label || r.style).slice(0, 40)}</Badge>}
             {aud?.icp_pct !== undefined && aud?.total ? (
               <Badge tone="green">{pct(aud.icp_pct)} ICP ({aud.icp}/{aud.total})</Badge>
             ) : null}

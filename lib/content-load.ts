@@ -22,6 +22,9 @@ export type CalendarRow = {
   topic: string | null;
   pain_id: string | null;
   pain_label: string | null;
+  /** Writing style the post was drawn with (plan 2026-11-04); null for clients without the flag. */
+  style?: string | null;
+  style_label?: string | null;
   image_url_imgbb: string | null;
   image_url_source: string | null;
   scheduled_for: string | null;
