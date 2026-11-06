@@ -19,8 +19,10 @@ export function looksLikeVideo(url: string | null | undefined): boolean {
 export function mediaOf(r: Pick<CalendarRow, "post_type" | "video_url" | "image_url_imgbb" | "image_url_source">): PostMedia {
   const type = (r.post_type ?? "").trim().toLowerCase();
   const links = [r.video_url, r.image_url_imgbb, r.image_url_source].map(u => (u ?? "").trim()).filter(Boolean);
+  // A Video post's file is its first link even when the host path has no extension.
   const video = (r.video_url ?? "").trim()
-    || (type === "video" || links.some(looksLikeVideo) ? links.find(looksLikeVideo) ?? "" : "");
+    || links.find(looksLikeVideo)
+    || (type === "video" ? links[0] ?? "" : "");
   if (video) return { kind: "video", src: video };
   const imgs = links.filter(u => !looksLikeVideo(u));
   const src = (r.image_url_imgbb ?? "").trim() && !looksLikeVideo(r.image_url_imgbb) ? r.image_url_imgbb!.trim() : imgs[0];

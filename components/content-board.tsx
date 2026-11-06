@@ -506,7 +506,7 @@ const PostCard = memo(function PostCard({ r, isAdmin, ownSlug, onDone }: { r: Ca
   const status = r.published_at ? "Published" : imagePending ? "Under review" : textStatus;
   const live = !r.published_at && textStatus !== "Suspended";
   const textRemaking = live && REMAKING.has(textStatus);
-  const imageRemaking = live && !textOnly && (REMAKING.has(r.image_status ?? "") || media.kind === "none");
+  const imageRemaking = live && !textOnly && media.kind !== "video" && (REMAKING.has(r.image_status ?? "") || media.kind === "none");
   const when = r.published_at || r.scheduled_for;
   const e = r.engagement;
   const aud = e?.audience ?? null;

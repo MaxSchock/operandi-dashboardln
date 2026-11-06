@@ -11,6 +11,7 @@ assert.deepStrictEqual(mediaOf(row({ post_type: "Video", video_url: EN, image_ur
 // video file only in the image column, no video_url
 assert.deepStrictEqual(mediaOf(row({ post_type: "Video", image_url_imgbb: EN })), { kind: "video", src: EN });
 assert.strictEqual(mediaOf(row({ image_url_imgbb: EN })).kind, "video");
+assert.deepStrictEqual(mediaOf(row({ post_type: "Video", image_url_imgbb: "https://cdn.x/opaque/abc" })), { kind: "video", src: "https://cdn.x/opaque/abc" });
 assert.strictEqual(mediaOf(row({ image_url_imgbb: EN + "?X-Amz=1" })).kind, "video");
 // image post unchanged, fallback kept
 assert.deepStrictEqual(mediaOf(row({ image_url_imgbb: "https://i.ibb.co/a.png", image_url_source: "https://fal/a.png" })),
