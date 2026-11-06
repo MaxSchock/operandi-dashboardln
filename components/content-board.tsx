@@ -5,6 +5,7 @@ import { memo, useCallback, useEffect, useRef, useState, type FormEvent } from "
 import { Loader2 } from "lucide-react";
 import { Card, CardHeader, CardBody, Badge, EmptyState } from "@/components/ui";
 import { CopyButton } from "@/components/copy-button";
+import { mediaOf } from "@/lib/media";
 import type { AnalyticsRow, CalendarRow, CommentDraftRow, ContentData } from "@/lib/content-load";
 
 const STATUS_TONE: Record<string, "slate" | "green" | "amber" | "red" | "electric"> = {
@@ -478,14 +479,22 @@ const PostCard = memo(function PostCard({ r, isAdmin, ownSlug, onDone }: { r: Ca
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
 
-  const img = r.image_url_imgbb || r.image_url_source;
+  const media = mediaOf(r);
+  const img = media.kind === "image" ? media.src : null;
+  const video = media.kind === "video" ? media.src : null;
+  // A file that cannot be loaded shows a plain tile, never the browser's broken-image icon.
+  const [mediaDead, setMediaDead] = useState<string | null>(null);
   // imgbb goes down now and then and serves its own "service unavailable" tile, so the
   // reviewer approved blind (28-10). If the imgbb copy errors or loads as a thumbnail-sized
   // tile (generated posts are ~900 px wide), show the original on fal instead.
   const [imgFailed, setImgFailed] = useState<string | null>(null);
-  const fallback = r.image_url_source && r.image_url_source !== img ? r.image_url_source : null;
+  const fallback = media.kind === "image" ? media.fallback : null;
   const shownImg = imgFailed === img && fallback ? fallback : img;
-  const onImgBad = () => { if (shownImg === img && fallback) setImgFailed(img); };
+  const dead = mediaDead !== null && (mediaDead === video || mediaDead === shownImg);
+  const onImgBad = () => {
+    if (shownImg === img && fallback) setImgFailed(img);
+    else if (shownImg) setMediaDead(shownImg);
+  };
   const textOnly = (r.post_type ?? "").toLowerCase() === "text";
   // A post is only eligible for publish when BOTH sides are approved (publish.py
   // skips image posts whose col F isn't Approved). Deriving the badge from
@@ -497,7 +506,7 @@ const PostCard = memo(function PostCard({ r, isAdmin, ownSlug, onDone }: { r: Ca
   const status = r.published_at ? "Published" : imagePending ? "Under review" : textStatus;
   const live = !r.published_at && textStatus !== "Suspended";
   const textRemaking = live && REMAKING.has(textStatus);
-  const imageRemaking = live && !textOnly && (REMAKING.has(r.image_status ?? "") || !img);
+  const imageRemaking = live && !textOnly && (REMAKING.has(r.image_status ?? "") || media.kind === "none");
   const when = r.published_at || r.scheduled_for;
   const e = r.engagement;
   const aud = e?.audience ?? null;
@@ -542,12 +551,21 @@ const PostCard = memo(function PostCard({ r, isAdmin, ownSlug, onDone }: { r: Ca
           <Working box text="Your image is being uploaded." />
         ) : imageRemaking ? (
           <Working box text={img ? "A new image is being drawn. It appears here in a few minutes." : "The image is being drawn. It appears here in a few minutes."} />
-        ) : img ? (
-          <a href={shownImg ?? img} target="_blank" rel="noreferrer" className="shrink-0">
-            <img src={shownImg ?? img} alt="post" className="h-40 w-40 rounded-md border object-cover"
+        ) : video && !dead ? (
+          <video src={video} controls preload="metadata" playsInline data-testid="post-video"
+            aria-label="Video of the post"
+            className="h-40 w-full shrink-0 rounded-md border bg-black object-contain sm:w-72"
+            onError={() => setMediaDead(video)} />
+        ) : shownImg && !dead ? (
+          <a href={shownImg} target="_blank" rel="noreferrer" className="shrink-0">
+            <img src={shownImg} alt="post" className="h-40 w-40 rounded-md border object-cover"
               onError={onImgBad}
-              onLoad={ev => { if (ev.currentTarget.naturalWidth < 400) onImgBad(); }} />
+              onLoad={ev => { if (ev.currentTarget.naturalWidth < 400 && fallback) onImgBad(); }} />
           </a>
+        ) : dead ? (
+          <div className="grid h-40 w-40 shrink-0 place-items-center rounded-md border border-dashed border-amber-300 bg-amber-50 text-center text-[10px] leading-4 text-amber-700" data-testid="media-unavailable">
+            <span>{video ? "video" : "image"} not loading<br /><a href={mediaDead ?? "#"} target="_blank" rel="noreferrer" className="underline">open the file</a></span>
+          </div>
         ) : textOnly ? (
           <div className="grid h-40 w-40 shrink-0 place-items-center rounded-md border border-dashed bg-slate-50 text-center text-[10px] leading-4 text-slate-400">
             <span>text-only<br />post<br /><span className="text-slate-300">(no image by design)</span></span>

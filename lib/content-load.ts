@@ -27,6 +27,8 @@ export type CalendarRow = {
   style_label?: string | null;
   image_url_imgbb: string | null;
   image_url_source: string | null;
+  /** The file of a video post; the view exposes it next to the image links. */
+  video_url?: string | null;
   scheduled_for: string | null;
   published_at: string | null;
   linkedin_url: string | null;
