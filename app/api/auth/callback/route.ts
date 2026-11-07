@@ -66,8 +66,10 @@ export async function GET(request: NextRequest) {
       });
   if (error) {
     console.error("[callback] sign-in failed:", error.message);
+    // A failed reset link gets the translated message on the sign-in screen.
+    const reason = next === "/login/new-password" ? "link_expired" : error.message;
     return NextResponse.redirect(
-      `${origin}/login?error=${encodeURIComponent(error.message)}`,
+      `${origin}/login?error=${encodeURIComponent(reason)}`,
     );
   }
 
