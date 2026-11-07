@@ -33,3 +33,12 @@ for (const lang of Object.keys(LOGIN_TEXTS)) {
 }
 assert.strictEqual(LOGIN_TEXTS.de.forgotPassword, "Passwort vergessen?");
 console.log("login-i18n-unit: ok");
+
+const { safeNext } = mod.exports;
+assert.strictEqual(safeNext(null), "/dashboard");
+assert.strictEqual(safeNext("/content"), "/content");
+assert.strictEqual(safeNext("https://evil.test"), "/dashboard");
+assert.strictEqual(safeNext("//evil.test"), "/dashboard");
+assert.strictEqual(safeNext("/\\evil.test"), "/dashboard");
+assert.strictEqual(safeNext("javascript:alert(1)"), "/dashboard");
+console.log("safeNext: ok");

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { LOGIN_TEXTS, type Lang } from "@/lib/login-i18n";
+import { LOGIN_TEXTS, safeNext, type Lang } from "@/lib/login-i18n";
 
 type Mode = "magic" | "password" | "reset";
 
@@ -37,7 +37,7 @@ export function LoginForm({ lang }: { lang: Lang }) {
       const supabase = createClient();
 
       if (mode === "magic") {
-        const next = encodeURIComponent(params.get("next") ?? "/dashboard");
+        const next = encodeURIComponent(safeNext(params.get("next")));
         const { error } = await supabase.auth.signInWithOtp({
           email,
           options: {
@@ -68,7 +68,9 @@ export function LoginForm({ lang }: { lang: Lang }) {
       // Force the router to re-run server components so the middleware
       // sees the new cookies, then push to dashboard.
       router.refresh();
-      router.push(params.get("next") ?? "/dashboard");
+      router.push(safeNext(params.get("next")));
+    } catch {
+      setError(t.networkError);
     } finally {
       setSubmitting(false);
     }

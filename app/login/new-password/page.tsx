@@ -13,7 +13,10 @@ export const dynamic = "force-dynamic";
  */
 export default async function NewPasswordPage() {
   const sb = await createClient();
-  const { data: { user } } = await sb.auth.getUser();
+  const { data: { user }, error } = await sb.auth.getUser();
+  // No session means the link expired or was used; any other failure is the provider's
+  // and surfaces as an error page instead of a misleading "link expired".
+  if (error && error.name !== "AuthSessionMissingError") throw error;
   if (!user) redirect("/login?error=link_expired");
   const lang = pickLang(headers().get("accept-language"));
 

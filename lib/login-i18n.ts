@@ -23,6 +23,12 @@ export function pickLang(header: string | null | undefined): Lang {
   return "en";
 }
 
+/** A same-site path to go to after signing in; anything else becomes /dashboard. */
+export function safeNext(next: string | null | undefined): string {
+  if (!next || !next.startsWith("/") || next.startsWith("//") || next.startsWith("/\\")) return "/dashboard";
+  return next;
+}
+
 export type LoginTexts = {
   magicTitle: string;
   passwordTitle: string;
@@ -47,6 +53,7 @@ export type LoginTexts = {
   passwordTooShort: string;
   linkExpired: string;
   loading: string;
+  networkError: string;
 };
 
 export const LOGIN_TEXTS: Record<Lang, LoginTexts> = {
@@ -74,6 +81,7 @@ export const LOGIN_TEXTS: Record<Lang, LoginTexts> = {
     passwordTooShort: "The password needs at least 8 characters.",
     linkExpired: "The link has expired or was already used. Ask for a new one.",
     loading: "Loading…",
+    networkError: "No connection to the server. Try again in a moment.",
   },
   de: {
     magicTitle: "Anmelden mit Magic Link",
@@ -99,6 +107,7 @@ export const LOGIN_TEXTS: Record<Lang, LoginTexts> = {
     passwordTooShort: "Das Passwort braucht mindestens 8 Zeichen.",
     linkExpired: "Der Link ist abgelaufen oder wurde schon benutzt. Fordere einen neuen an.",
     loading: "Wird geladen…",
+    networkError: "Keine Verbindung zum Server. Bitte versuch es gleich noch einmal.",
   },
   fr: {
     magicTitle: "Connexion par lien magique",
@@ -124,6 +133,7 @@ export const LOGIN_TEXTS: Record<Lang, LoginTexts> = {
     passwordTooShort: "Le mot de passe doit contenir au moins 8 caractères.",
     linkExpired: "Le lien a expiré ou a déjà été utilisé. Demandez-en un nouveau.",
     loading: "Chargement…",
+    networkError: "Pas de connexion au serveur. Réessayez dans un instant.",
   },
   es: {
     magicTitle: "Entrar con enlace mágico",
@@ -149,5 +159,6 @@ export const LOGIN_TEXTS: Record<Lang, LoginTexts> = {
     passwordTooShort: "La contraseña necesita al menos 8 caracteres.",
     linkExpired: "El enlace ha caducado o ya se usó. Pide uno nuevo.",
     loading: "Cargando…",
+    networkError: "No hay conexión con el servidor. Vuelve a intentarlo en un momento.",
   },
 };

@@ -26,6 +26,8 @@ export function NewPasswordForm({ lang, email }: { lang: Lang; email: string }) 
       if (error) { setError(error.message); return; }
       router.refresh();
       router.push("/dashboard");
+    } catch {
+      setError(t.networkError);
     } finally {
       setSubmitting(false);
     }
