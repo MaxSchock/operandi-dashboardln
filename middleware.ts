@@ -1,9 +1,26 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { isAuthOutage } from "@/lib/auth-outage";
+import { LOGIN_TEXTS, pickLang } from "@/lib/login-i18n";
 
 type CookieToSet = { name: string; value: string; options: CookieOptions };
 
 const PUBLIC_PATHS = ["/login"];
+
+/** 503 page in the reader's language; access stays closed, nothing is cached. */
+function unavailable(req: NextRequest) {
+  const lang = pickLang(req.headers.get("accept-language"));
+  const html = `<!doctype html><html lang="${lang}"><head><meta charset="utf-8">`
+    + `<meta name="viewport" content="width=device-width, initial-scale=1"><title>Operandi Dashboard</title></head>`
+    + `<body style="font-family:system-ui,sans-serif;background:#f8fafc;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;padding:16px">`
+    + `<main style="max-width:24rem;background:#fff;border:1px solid #e2e8f0;border-radius:1rem;padding:2rem">`
+    + `<h1 style="font-size:1.5rem;margin:0 0 .5rem">Operandi Dashboard</h1>`
+    + `<p style="color:#475569;font-size:.9rem;margin:0">${LOGIN_TEXTS[lang].authUnavailable}</p></main></body></html>`;
+  return new NextResponse(html, {
+    status: 503,
+    headers: { "content-type": "text/html; charset=utf-8", "retry-after": "60", "cache-control": "no-store" },
+  });
+}
 
 export async function middleware(req: NextRequest) {
   // ----------------------------------------------------------------
@@ -41,10 +58,15 @@ export async function middleware(req: NextRequest) {
     },
   );
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user }, error: userError } = await supabase.auth.getUser();
   const path = url.pathname;
 
   const isPublic = PUBLIC_PATHS.some(p => path.startsWith(p));
+  // Supabase unreachable is not a logout: say so instead of bouncing to /login.
+  if (!user && !isPublic && isAuthOutage(userError)) {
+    console.error("[middleware] session check failed:", userError?.message);
+    return unavailable(req);
+  }
   if (!user && !isPublic) {
     const dest = url.clone();
     dest.pathname = "/login";
@@ -55,12 +77,17 @@ export async function middleware(req: NextRequest) {
 
   // /admin/* requires operandi_admin role.
   if (path.startsWith("/admin") && user) {
-    const { data: cu } = await supabase
+    const { data: cu, error: roleError } = await supabase
       .schema("outreach")
       .from("client_users")
       .select("role")
       .eq("user_id", user.id)
       .maybeSingle();
+    // A failed role lookup denies access but is not reported as "not an admin".
+    if (roleError) {
+      console.error("[middleware] role lookup failed:", roleError.message);
+      return unavailable(req);
+    }
     if (cu?.role !== "operandi_admin") {
       const dest = url.clone();
       dest.pathname = "/dashboard";

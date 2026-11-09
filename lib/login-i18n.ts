@@ -54,6 +54,7 @@ export type LoginTexts = {
   linkExpired: string;
   loading: string;
   networkError: string;
+  authUnavailable: string;
 };
 
 export const LOGIN_TEXTS: Record<Lang, LoginTexts> = {
@@ -82,6 +83,7 @@ export const LOGIN_TEXTS: Record<Lang, LoginTexts> = {
     linkExpired: "The link has expired or was already used. Ask for a new one.",
     loading: "Loading…",
     networkError: "No connection to the server. Try again in a moment.",
+    authUnavailable: "The sign-in service is not answering right now. Reload the page in a minute.",
   },
   de: {
     magicTitle: "Anmelden mit Magic Link",
@@ -108,6 +110,7 @@ export const LOGIN_TEXTS: Record<Lang, LoginTexts> = {
     linkExpired: "Der Link ist abgelaufen oder wurde schon benutzt. Fordere einen neuen an.",
     loading: "Wird geladen…",
     networkError: "Keine Verbindung zum Server. Bitte versuch es gleich noch einmal.",
+    authUnavailable: "Der Anmeldedienst antwortet gerade nicht. Lade die Seite in einer Minute neu.",
   },
   fr: {
     magicTitle: "Connexion par lien magique",
@@ -134,6 +137,7 @@ export const LOGIN_TEXTS: Record<Lang, LoginTexts> = {
     linkExpired: "Le lien a expiré ou a déjà été utilisé. Demandez-en un nouveau.",
     loading: "Chargement…",
     networkError: "Pas de connexion au serveur. Réessayez dans un instant.",
+    authUnavailable: "Le service de connexion ne répond pas pour le moment. Rechargez la page dans une minute.",
   },
   es: {
     magicTitle: "Entrar con enlace mágico",
@@ -160,5 +164,6 @@ export const LOGIN_TEXTS: Record<Lang, LoginTexts> = {
     linkExpired: "El enlace ha caducado o ya se usó. Pide uno nuevo.",
     loading: "Cargando…",
     networkError: "No hay conexión con el servidor. Vuelve a intentarlo en un momento.",
+    authUnavailable: "El servicio de acceso no responde ahora mismo. Recarga la página dentro de un minuto.",
   },
 };
