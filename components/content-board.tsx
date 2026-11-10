@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react";
 import { Card, CardHeader, CardBody, Badge, EmptyState } from "@/components/ui";
 import { CopyButton } from "@/components/copy-button";
 import { mediaOf } from "@/lib/media";
+import { currentReview, imageCheck, imageParked } from "@/lib/image-review";
 import type { AnalyticsRow, CalendarRow, CommentDraftRow, ContentData } from "@/lib/content-load";
 
 const STATUS_TONE: Record<string, "slate" | "green" | "amber" | "red" | "electric"> = {
@@ -100,7 +101,7 @@ export function ContentBoard({ data: served }: { data: ContentData }) {
     const arrived = posts.filter(p => p.content_slug === slug && !q.known.includes(p.post_id)).length;
     return Math.max(0, q.n - arrived);
   };
-  const working = posts.some(p => !p.published_at && (REMAKING.has(p.text_status ?? "") || REMAKING.has(p.image_status ?? "")))
+  const working = posts.some(p => !p.published_at && (REMAKING.has(p.text_status ?? "") || (REMAKING.has(p.image_status ?? "") && !imageParked(p))))
     || Object.keys(queued).some(slug => waiting(slug) > 0);
 
   // Often while something is being made, seldom otherwise (a post published by
@@ -506,7 +507,13 @@ const PostCard = memo(function PostCard({ r, isAdmin, ownSlug, onDone }: { r: Ca
   const status = r.published_at ? "Published" : imagePending ? "Under review" : textStatus;
   const live = !r.published_at && textStatus !== "Suspended";
   const textRemaking = live && REMAKING.has(textStatus);
-  const imageRemaking = live && !textOnly && media.kind !== "video" && (REMAKING.has(r.image_status ?? "") || media.kind === "none");
+  // A picture the reviewer rejected waits in "In progress" with the engine's note: it is
+  // shown with the note, not as being drawn (HNT 23-11, heads-up 124).
+  const parked = imageParked(r);
+  const imageRemaking = live && !textOnly && media.kind !== "video" && !parked && (REMAKING.has(r.image_status ?? "") || media.kind === "none");
+  const check = textOnly || media.kind === "video" ? null : imageCheck(r);
+  const review = currentReview(r);
+  const imageNotes = (r.image_notes ?? "").trim();
   const when = r.published_at || r.scheduled_for;
   const e = r.engagement;
   const aud = e?.audience ?? null;
@@ -581,6 +588,7 @@ const PostCard = memo(function PostCard({ r, isAdmin, ownSlug, onDone }: { r: Ca
             {r.linkedin_deleted_at && <Badge tone="red">deleted on LinkedIn</Badge>}
             {textOnly && <Badge tone="slate">Text-only</Badge>}
             {imagePending && !imageRemaking && <Badge tone="amber">new image — approve to publish</Badge>}
+            {check && !imageRemaking && <span data-testid="image-check"><Badge tone={check.tone}>{check.label}</Badge></span>}
             {!r.published_at && r.scheduled_for && new Date(r.scheduled_for) < new Date() && (
               <Badge tone="amber">⚠ overdue ({dateOnly(r.scheduled_for)}) — {fullyApproved ? "publishes on the next run" : "approve to publish"}</Badge>
             )}
@@ -605,6 +613,21 @@ const PostCard = memo(function PostCard({ r, isAdmin, ownSlug, onDone }: { r: Ca
             <div className="mt-2 text-xs text-slate-400">metrics pending nightly sync</div>
           ) : null}
           {textRemaking && <div className="mt-3"><Working text="The text is being rewritten. The new one appears here in a few minutes." /></div>}
+          {!imageRemaking && (check || imageNotes) && (
+            <div className={`mt-3 rounded-md border px-3 py-2 text-xs leading-5 ${check?.tone === "red" ? "border-red-200 bg-red-50 text-red-800" : check?.tone === "amber" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-slate-200 bg-slate-50 text-slate-700"}`} data-testid="image-notes">
+              <div className="font-medium">About the image</div>
+              {imageNotes && <div className="whitespace-pre-wrap">{imageNotes}</div>}
+              {check && check.issues.length > 0 && (
+                <ul className="mt-1 list-disc pl-4">{check.issues.map((t, i) => <li key={i}>{t}</li>)}</ul>
+              )}
+              {isAdmin && review && (
+                <div className="mt-1 text-[10px] text-slate-500" data-testid="image-review-detail">
+                  reviewer: {review.verdict}{review.stage ? ` · ${review.stage}` : ""}{review.model ? ` · ${review.model}` : ""}{review.at ? ` · ${dateTime(review.at)}` : ""}
+                  {review.verdict === "unreviewed" && review.reason ? ` · ${review.reason}` : ""}
+                </div>
+              )}
+            </div>
+          )}
           {/* Full post text, readable (scrolls if very long) */}
           <pre className={`mt-3 max-h-96 overflow-y-auto whitespace-pre-wrap rounded-md bg-slate-50 p-3 text-xs leading-5 text-slate-700 ${textRemaking ? "opacity-50" : ""}`} data-testid="post-text">{r.text_content ?? "(no text)"}</pre>
           {r.linkedin_url && (

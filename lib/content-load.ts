@@ -8,6 +8,8 @@ export type Engagement = {
   audience?: Audience;
 } | null;
 
+import type { ImageReview } from "@/lib/image-review";
+
 export type CalendarRow = {
   content_slug: string;
   content_name: string | null;
@@ -19,6 +21,10 @@ export type CalendarRow = {
   text_status: string | null;
   image_status: string | null;
   text_notes?: string | null;
+  /** Image notes and the latest check of the picture by the engine's reviewer
+   * (view migration 2026_11_10); absent before it is applied. */
+  image_notes?: string | null;
+  image_review?: ImageReview | null;
   topic: string | null;
   pain_id: string | null;
   pain_label: string | null;
