@@ -6,7 +6,7 @@ import { Loader2 } from "lucide-react";
 import { Card, CardHeader, CardBody, Badge, EmptyState } from "@/components/ui";
 import { CopyButton } from "@/components/copy-button";
 import { mediaOf } from "@/lib/media";
-import { currentReview, imageCheck, imageParked } from "@/lib/image-review";
+import { currentReview, imageCheck, imageNotesShown, imageParked } from "@/lib/image-review";
 import type { AnalyticsRow, CalendarRow, CommentDraftRow, ContentData } from "@/lib/content-load";
 
 const STATUS_TONE: Record<string, "slate" | "green" | "amber" | "red" | "electric"> = {
@@ -511,9 +511,10 @@ const PostCard = memo(function PostCard({ r, isAdmin, ownSlug, onDone }: { r: Ca
   // shown with the note, not as being drawn (HNT 23-11, heads-up 124).
   const parked = imageParked(r);
   const imageRemaking = live && !textOnly && media.kind !== "video" && !parked && (REMAKING.has(r.image_status ?? "") || media.kind === "none");
-  const check = textOnly || media.kind === "video" ? null : imageCheck(r);
+  const pictureCard = !textOnly && media.kind !== "video";
+  const check = pictureCard ? imageCheck(r) : null;
   const review = currentReview(r);
-  const imageNotes = (r.image_notes ?? "").trim();
+  const imageNotes = pictureCard ? imageNotesShown(r) : "";
   const when = r.published_at || r.scheduled_for;
   const e = r.engagement;
   const aud = e?.audience ?? null;

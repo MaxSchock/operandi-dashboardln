@@ -4,7 +4,7 @@ const ts = require("typescript"), fs = require("fs"), path = require("path"), as
 const src = fs.readFileSync(path.join(__dirname, "../lib/image-review.ts"), "utf8");
 const js = ts.transpileModule(src, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: "es2020" } }).outputText;
 const m = { exports: {} }; new Function("module", "exports", "require", js)(m, m.exports, require);
-const { imageParked, imageCheck, currentReview } = m.exports;
+const { imageParked, imageCheck, currentReview, imageNotesShown } = m.exports;
 const IMG = "https://i.ibb.co/post.png";
 const row = (o) => ({ image_status: "New", image_url_imgbb: IMG, image_url_source: "https://fal/x.png", ...o });
 const v = (verdict, o = {}) => ({ stage: "prepare", verdict, issues: [], reason: "", model: "m", at: "2026-11-10T10:00:00+00:00", image_url: IMG, ...o });
@@ -40,4 +40,18 @@ assert.ok(currentReview(row({ image_review: v("fail", { image_url: "https://fal/
 // junk in the column does not break the card
 assert.strictEqual(imageCheck(row({ image_review: "x" })), null);
 assert.strictEqual(imageCheck(row({ image_review: {} })), null);
+// a person wrote under the engine's line: the daemon redraws, the card must say so
+assert.ok(!imageParked(row({ image_status: "In progress", image_notes: "auto: the reviewer flagged this image: x\nkeep the boiler" })));
+assert.ok(imageParked(row({ image_status: "In progress", image_notes: "auto: a\n\u26a0 b\nsage_flagged: c" })));
+// approved or published: no red badge, engine lines hidden, person's lines kept
+assert.strictEqual(imageCheck(row({ image_status: "Approved", image_review: v("fail") })), null);
+assert.strictEqual(imageCheck(row({ image_status: "Published", image_review: v("unreviewed") })), null);
+assert.strictEqual(imageNotesShown(row({ image_status: "Approved", image_notes: "auto: x\nwarmer light" })), "warmer light");
+// picture replaced by hand: the old engine note goes, the verdict is ignored
+assert.strictEqual(imageNotesShown(row({ image_url_imgbb: "https://i.ibb.co/manual.png", image_url_source: null,
+  image_notes: "auto: AI artifacts detected", image_review: v("fail") })), "");
+// same picture: the note stays
+assert.strictEqual(imageNotesShown(row({ image_notes: "auto: x", image_review: v("fail") })), "auto: x");
+// issues that are not a list do not throw
+assert.deepStrictEqual(imageCheck(row({ image_review: v("fail", { issues: "x" }) })).issues, []);
 console.log("image-review-unit ok");
