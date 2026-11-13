@@ -1,4 +1,7 @@
-import { createClient } from "@/lib/supabase/server";
+import { headers } from "next/headers";
+import { createClient, serviceRoleClient } from "@/lib/supabase/server";
+import { commentRepliesOff, LOCALE_BY_CONTENT_SLUG } from "@/lib/content-config";
+import { pickLocale } from "@/lib/content-format";
 import { getClientScope } from "@/lib/scope";
 import { getTier } from "@/lib/tier";
 
@@ -25,6 +28,9 @@ export type CalendarRow = {
   image_url_imgbb: string | null;
   image_url_source: string | null;
   scheduled_for: string | null;
+  /** When the engine wrote the post (UTC). Not in the content_calendar view: it is read
+   * from content_engine_posts by id and is null if that read fails. */
+  created_at?: string | null;
   published_at: string | null;
   linkedin_url: string | null;
   linkedin_deleted_at: string | null;
@@ -70,6 +76,10 @@ export type ContentData = {
   analytics: AnalyticsRow[];
   drafts: CommentDraftRow[];
   draftsError: string | null;
+  /** Content slugs whose comment replies are switched off for the client (see content-config). */
+  commentRepliesOff: string[];
+  /** Locale dates are written in: the client's own, else the browser's. */
+  locale: string;
 };
 
 /** Everything the Content page shows, for the signed-in user and the client
@@ -99,7 +109,16 @@ export async function loadContent(): Promise<ContentData | null> {
     analytics = analytics.filter(a => a.outreach_slug === scope);
     drafts = drafts.filter(d => d.outreach_slug === scope);
   }
+  await attachCreatedAt(posts);
+  // Switched off for a client: its replies are not sent to the browser at all.
+  const off = commentRepliesOff();
+  drafts = drafts.filter(d => !off.includes(d.content_slug));
+  const own = posts.find(p => p.outreach_slug === tier.clientSlug)?.content_slug;
+  let accept: string | null = null;
+  try { accept = (await headers()).get("accept-language"); } catch { /* no request */ }
+  const locale = pickLocale(!tier.isAdmin && own ? LOCALE_BY_CONTENT_SLUG[own] : null, accept);
   return {
+    commentRepliesOff: off, locale,
     isAdmin: tier.isAdmin,
     // Clients with the content product manage their own posts (approve, edit,
     // revisions, image, date) and generate within a tighter budget.
@@ -109,4 +128,25 @@ export async function loadContent(): Promise<ContentData | null> {
     // that someone is waiting for a reply (Codex, 2026-09-02).
     draftsError: draftErr ? draftErr.message : null,
   };
+}
+
+/** The creation time lives only in content_engine_posts; the calendar view does not carry
+ * it. The ids come from that view (RLS already decided which rows this person may see) and
+ * only the timestamp goes back, never anything else of the row. A failure leaves the cards
+ * without a creation date, it never breaks the page. */
+async function attachCreatedAt(posts: CalendarRow[]): Promise<void> {
+  if (posts.length === 0 || !process.env.SUPABASE_SERVICE_ROLE_KEY) return;
+  try {
+    const ids = posts.map(p => p.post_id);
+    const batches: string[][] = [];
+    // Batches: hundreds of ids in one .in() can pass the URL limit.
+    for (let i = 0; i < ids.length; i += 100) batches.push(ids.slice(i, i + 100));
+    const found = new Map<string, string>();
+    await Promise.all(batches.map(async batch => {
+      const { data, error } = await serviceRoleClient().from("content_engine_posts").select("id,created_at").in("id", batch);
+      if (error) { console.error("content: created_at read failed", error.message); return; }
+      for (const d of (data ?? []) as { id: string; created_at: string | null }[]) if (d.created_at) found.set(d.id, d.created_at);
+    }));
+    for (const p of posts) p.created_at = found.get(p.post_id) ?? null;
+  } catch (e) { console.error("content: created_at failed", e); }
 }
