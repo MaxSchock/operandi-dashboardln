@@ -2,29 +2,27 @@
 /* eslint-disable @next/next/no-img-element */
 
 import { memo, useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { Loader2 } from "lucide-react";
-import { Card, CardHeader, CardBody, Badge, EmptyState } from "@/components/ui";
+import { Loader2, Sparkles } from "lucide-react";
+import { Card, CardBody, Badge, EmptyState } from "@/components/ui";
 import { CopyButton } from "@/components/copy-button";
 import { mediaOf } from "@/lib/media";
 import { currentReview, imageCheck, imageNotesShown, imageParked } from "@/lib/image-review";
 import type { AnalyticsRow, CalendarRow, CommentDraftRow, ContentData } from "@/lib/content-load";
+import {
+  ZONE, arrivedSince, fmtDate, fmtDateTime, isJustCreated, postStatus, postTab, sortForTab, statusLabel,
+  type PostTab,
+} from "@/lib/content-format";
 
 const STATUS_TONE: Record<string, "slate" | "green" | "amber" | "red" | "electric"> = {
   Published: "green", Approved: "electric", New: "slate",
   "Under review": "amber", "In progress": "amber", Suspended: "red",
 };
-const POSTS_PER_CLIENT = 12;
 /** The engine picked the post up (or is about to): text or image is being made again. */
 const REMAKING = new Set(["Under review", "In progress"]);
 /** How long the places kept for freshly requested posts wait before giving up. */
 const GENERATE_WAIT_MS = 20 * 60 * 1000;
 
-// One zone and one notation on the server and in the browser: the same string
-// in both renders, and the zone the engine schedules in.
-const ZONE = "Europe/Berlin";
-const dateTime = (iso: string) => new Date(iso).toLocaleString("en-GB", { timeZone: ZONE, dateStyle: "short", timeStyle: "short" });
-const dateOnly = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { timeZone: ZONE, dateStyle: "short" });
-const num = (v: number) => v.toLocaleString("en-GB");
+const num = (v: number, locale: string) => v.toLocaleString(locale);
 
 function pct(v: string | number | null | undefined): string {
   if (v === null || v === undefined) return "—";
@@ -67,6 +65,27 @@ function keep<T>(prev: T[], fresh: T[], id: (x: T) => string): T[] {
   });
 }
 
+/** A row of tabs. Plain buttons: the state lives in the component, nothing loads. */
+function Tabs<K extends string>({ tabs, value, onChange, label, size = "md" }: {
+  tabs: { key: K; label: string; count?: number; testid?: string }[]; value: K; onChange: (k: K) => void; label: string; size?: "md" | "sm";
+}) {
+  return (
+    <div role="tablist" aria-label={label} className={`flex flex-wrap gap-1 ${size === "md" ? "border-b" : ""}`}>
+      {tabs.map(t => {
+        const on = t.key === value;
+        return (
+          <button key={t.key} type="button" role="tab" aria-selected={on} data-testid={t.testid} onClick={() => onChange(t.key)}
+            className={size === "md"
+              ? `-mb-px rounded-t-md border-b-2 px-3 py-2 text-sm font-medium ${on ? "border-electric text-electric" : "border-transparent text-slate-500 hover:text-slate-800"}`
+              : `rounded-full px-3 py-1 text-xs font-medium ${on ? "bg-electric text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
+            {t.label}{t.count !== undefined && <span className={`ml-1.5 tabular-nums ${on ? "" : "text-slate-400"}`}>({t.count})</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 type Queued = { n: number; known: string[]; until: number };
 
 export function ContentBoard({ data: served }: { data: ContentData }) {
@@ -94,7 +113,7 @@ export function ContentBoard({ data: served }: { data: ContentData }) {
     } catch { /* the next tick asks again */ }
   }, []);
 
-  const { isAdmin, ownSlug, posts, analytics, drafts } = data;
+  const { isAdmin, ownSlug, posts, analytics, drafts, locale } = data;
   const waiting = (slug: string) => {
     const q = queued[slug];
     if (!q) return 0;
@@ -144,49 +163,132 @@ export function ContentBoard({ data: served }: { data: ContentData }) {
       {sections.map(s => {
         const sectionIsOwn = ownSlug != null && (s.posts[0]?.outreach_slug ?? s.analytics?.outreach_slug) === ownSlug;
         const places = waiting(s.slug);
+        const canGenerate = isAdmin || sectionIsOwn;
+        const showComments = canGenerate && !data.commentRepliesOff.includes(s.slug);
         return (
-          <div key={s.slug} className="space-y-3" data-testid={`content-${s.slug}`}>
-            {(isAdmin || sectionIsOwn) && (
-              <GeneratePanel slug={s.slug} name={s.name} maxCount={isAdmin ? 10 : 6}
-                onQueued={n => onQueued(s.slug, places + n, s.posts.map(p => p.post_id))} />
-            )}
-            <AnalyticsPanel name={s.name} a={s.analytics} posts={s.posts} showInternals={isAdmin || sectionIsOwn} />
-            {(isAdmin || sectionIsOwn) && (
-              <CommentDraftsPanel slug={s.slug} name={s.name} error={data.draftsError}
-                drafts={drafts.filter(d => d.content_slug === s.slug)} onDone={reload} />
-            )}
-            <Card>
-              <CardHeader title={`Posts · ${s.name}`} hint={`${s.posts.length} post${s.posts.length === 1 ? "" : "s"}`} />
-              <CardBody className="space-y-4">
-                {Array.from({ length: places }, (_, i) => (
-                  <div key={`queued-${i}`} className="flex flex-col gap-4 rounded-lg border border-dashed border-amber-300 p-4 sm:flex-row" data-testid="post-queued">
-                    <Working box text="The image comes after the text." />
-                    <Working text={`A new post is being written${places > 1 ? ` (${i + 1} of ${places})` : ""}. It appears here in a few minutes.`} />
-                  </div>
-                ))}
-                {s.posts.length === 0 && places === 0 ? (
-                  <EmptyState title="No posts yet" />
-                ) : (
-                  <>
-                    {s.posts.slice(0, POSTS_PER_CLIENT).map(r => <PostCard key={r.post_id} r={r} isAdmin={isAdmin} ownSlug={ownSlug} onDone={reload} />)}
-                    {s.posts.length > POSTS_PER_CLIENT && (
-                      <details className="group">
-                        <summary className="cursor-pointer list-none rounded-md border border-dashed py-2 text-center text-xs font-medium text-electric hover:bg-slate-50">
-                          Show {s.posts.length - POSTS_PER_CLIENT} more <span className="group-open:hidden">▾</span><span className="hidden group-open:inline">▴</span>
-                        </summary>
-                        <div className="mt-4 space-y-4">
-                          {s.posts.slice(POSTS_PER_CLIENT).map(r => <PostCard key={r.post_id} r={r} isAdmin={isAdmin} ownSlug={ownSlug} onDone={reload} />)}
-                        </div>
-                      </details>
-                    )}
-                  </>
-                )}
-              </CardBody>
-            </Card>
-          </div>
+          <SectionView key={s.slug} slug={s.slug} name={s.name} posts={s.posts} analytics={s.analytics}
+            drafts={drafts.filter(d => d.content_slug === s.slug)} draftsError={data.draftsError}
+            isAdmin={isAdmin} ownSlug={ownSlug} canGenerate={canGenerate} showComments={showComments}
+            locale={locale} places={places} queued={queued[s.slug]}
+            onQueued={n => onQueued(s.slug, places + n, s.posts.map(p => p.post_id))} reload={reload} />
         );
       })}
     </>
+  );
+}
+
+/* ---------- one client ---------- */
+
+type Main = "posts" | "analytics" | "comments";
+
+function SectionView({ slug, name, posts, analytics, drafts, draftsError, isAdmin, ownSlug, canGenerate, showComments, locale, places, queued, onQueued, reload }: {
+  slug: string; name: string; posts: CalendarRow[]; analytics?: AnalyticsRow; drafts: CommentDraftRow[]; draftsError: string | null;
+  isAdmin: boolean; ownSlug: string | null; canGenerate: boolean; showComments: boolean; locale: string; places: number;
+  queued?: Queued; onQueued: (n: number) => void; reload: () => Promise<void>;
+}) {
+  const [main, setMain] = useState<Main>("posts");
+  const [sub, setSub] = useState<PostTab>("review");
+  const [genOpen, setGenOpen] = useState(false);
+  // Posts that arrived after this person pressed Generate: highlighted until looked at.
+  const [fresh, setFresh] = useState<string[]>([]);
+  const scrolled = useRef("");
+
+  // Which posts are the ones just asked for: those that came after the press, oldest first.
+  useEffect(() => {
+    if (!queued) return;
+    const ids = arrivedSince(posts, queued.known, queued.n).map(p => p.post_id);
+    setFresh(prev => {
+      const next = [...new Set([...prev, ...ids])];
+      return next.length === prev.length ? prev : next;
+    });
+  }, [posts, queued]);
+
+  // When the last one has come, take the person to it: the review list, the newest post, highlighted.
+  const freshKey = fresh.join(",");
+  useEffect(() => {
+    if (!freshKey || places > 0 || scrolled.current === freshKey) return;
+    scrolled.current = freshKey;
+    setMain("posts"); setSub("review");
+    const target = sortForTab(posts.filter(p => fresh.includes(p.post_id)), "review")[0];
+    if (!target) return;
+    const t = setTimeout(() => document.getElementById(`post-${target.content_slug}-${target.sheet_row}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 120);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [freshKey, places]);
+
+  const seen = useCallback((id: string) => setFresh(f => f.filter(x => x !== id)), []);
+  const by: Record<PostTab, CalendarRow[]> = { review: [], scheduled: [], published: [], suspended: [] };
+  for (const p of posts) by[postTab(p)].push(p);
+  const openComments = drafts.filter(d => d.action !== "draft_done").length;
+  const mainTabs: { key: Main; label: string; count?: number; testid: string }[] = [
+    { key: "posts", label: "Posts", count: posts.length, testid: "main-posts" },
+    { key: "analytics", label: "Analytics", testid: "main-analytics" },
+    ...(showComments ? [{ key: "comments" as Main, label: "Comment replies", count: openComments, testid: "main-comments" }] : []),
+  ];
+  const subTabs: { key: PostTab; label: string; count?: number; testid: string }[] = [
+    { key: "review", label: "To review", count: by.review.length, testid: "tab-review" },
+    { key: "scheduled", label: "Scheduled", count: by.scheduled.length, testid: "tab-scheduled" },
+    { key: "published", label: "Published", count: by.published.length, testid: "tab-published" },
+    ...(by.suspended.length > 0 ? [{ key: "suspended" as PostTab, label: "Suspended", count: by.suspended.length, testid: "tab-suspended" }] : []),
+  ];
+  const shown = sortForTab(by[sub], sub);
+  const EMPTY: Record<PostTab, [string, string]> = {
+    review: ["Nothing to review", "New posts appear here. Approve one to schedule it."],
+    scheduled: ["Nothing scheduled", "Approved posts wait here for their date."],
+    published: ["Nothing published yet", "Posts show up here once they are on LinkedIn."],
+    suspended: ["Nothing suspended", ""],
+  };
+
+  return (
+    <div className="space-y-3" data-testid={`content-${slug}`}>
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-4 sm:px-5">
+          <h2 className="font-display text-lg text-navy">{name}</h2>
+          {canGenerate && (
+            <button type="button" aria-expanded={genOpen} data-testid="generate-toggle" onClick={() => setGenOpen(o => !o)}
+              className="inline-flex items-center gap-1.5 rounded-md bg-electric px-3 py-1.5 text-sm font-medium text-white hover:opacity-90">
+              <Sparkles className="h-4 w-4" aria-hidden /> Generate posts
+            </button>
+          )}
+        </div>
+        {canGenerate && (
+          // Always mounted, only hidden: what was typed is not lost by closing it.
+          <div className={genOpen ? "px-4 pt-3 sm:px-5" : "hidden"} data-testid="generate-panel">
+            <div className="rounded-lg border bg-slate-50 p-4">
+              <GeneratePanel slug={slug} maxCount={isAdmin ? 10 : 6}
+                onQueued={n => { onQueued(n); setMain("posts"); setSub("review"); }} />
+            </div>
+          </div>
+        )}
+        <div className="mt-3 px-4 sm:px-5"><Tabs tabs={mainTabs} value={main} onChange={setMain} label={`${name} sections`} /></div>
+        <CardBody className="space-y-4 p-4 sm:p-5">
+          {main === "posts" && (
+            <>
+              <Tabs tabs={subTabs} value={sub} onChange={setSub} label="Posts by state" size="sm" />
+              {sub === "review" && Array.from({ length: places }, (_, i) => (
+                <div key={`queued-${i}`} className="flex flex-col gap-3 rounded-lg border border-dashed border-amber-300 p-4 sm:flex-row" data-testid="post-queued">
+                  <Working text={`A new post is being written${places > 1 ? ` (${i + 1} of ${places})` : ""}. It appears here in a few minutes.`} />
+                </div>
+              ))}
+              {shown.length === 0 && !(sub === "review" && places > 0) ? (
+                <EmptyState title={EMPTY[sub][0]} hint={EMPTY[sub][1]} />
+              ) : (
+                shown.map(r => (
+                  <PostCard key={r.post_id} r={r} isAdmin={isAdmin} ownSlug={ownSlug} locale={locale}
+                    fresh={fresh.includes(r.post_id)} onSeen={seen} onDone={reload} />
+                ))
+              )}
+            </>
+          )}
+          {main === "analytics" && (isAdmin
+            ? <AnalyticsPanel a={analytics} posts={posts} locale={locale} />
+            : <ClientAnalytics posts={posts} locale={locale} />)}
+          {main === "comments" && showComments && (
+            <CommentDraftsPanel slug={slug} drafts={drafts} error={draftsError} locale={locale} onDone={reload} />
+          )}
+        </CardBody>
+      </Card>
+    </div>
   );
 }
 
@@ -194,7 +296,7 @@ export function ContentBoard({ data: served }: { data: ContentData }) {
 
 type QueuedNote = { queued: number; topics: number; dropped: number; textOnly: boolean };
 
-function GeneratePanel({ slug, name, maxCount, onQueued }: { slug: string; name: string; maxCount: number; onQueued: (n: number) => void }) {
+function GeneratePanel({ slug, maxCount, onQueued }: { slug: string; maxCount: number; onQueued: (n: number) => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Say what was queued: a topic list that had been cut or dropped must not
@@ -214,59 +316,54 @@ function GeneratePanel({ slug, name, maxCount, onQueued }: { slug: string; name:
     onQueued(queued);
   }
   return (
-    <Card>
-      <CardHeader title={`Generate posts · ${name}`} hint="on demand" />
-      <CardBody>
-        <form onSubmit={submit} className="space-y-3" data-testid="generate-form">
-          <div className="flex items-center gap-2">
-            <label className="text-xs font-medium text-slate-600">Number of posts</label>
-            <input type="number" name="count" defaultValue={3} min={1} max={maxCount}
-              className="w-16 rounded-md border bg-white px-2 py-1 text-sm text-slate-700" />
-          </div>
-          <div>
-            <label className="text-xs text-slate-500">Topics — leave empty and the agent picks them</label>
-            <textarea name="topics" rows={4}
-              placeholder={"One idea per line. Write full sentences if you want to: commas never split an idea.\nFor an idea that needs several lines, separate the ideas with an empty line."}
-              className="mt-1 w-full rounded-md border bg-white px-2 py-1 text-sm text-slate-700" />
-            <p className="mt-1 text-xs text-slate-400">
-              One post per idea. What you write here decides what the post is about; voice,
-              structure and length stay as configured.
-            </p>
-          </div>
-          <label className="flex items-center gap-2 text-sm text-slate-700">
-            <input type="checkbox" name="text_only" value="1" /> Without image (text-only posts)
-          </label>
-          <div className="flex flex-wrap items-center gap-3">
-            <button disabled={busy} className="rounded-md bg-electric px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40">
-              {busy ? "Sending..." : "Generate"}
-            </button>
-            {!note && !error && <span className="text-xs text-slate-400">Posts appear below by themselves in a few minutes.</span>}
-          </div>
-          {error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800" data-testid="generate-error"><span className="font-medium">That didn&apos;t work: </span>{error}</div>}
-          {note && (
-            <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900" data-testid="generate-queued">
-              <span className="font-medium">{note.queued} post{note.queued === 1 ? "" : "s"} queued</span>
-              {note.topics > 0 ? ` from ${note.topics} topic${note.topics === 1 ? "" : "s"} you provided.` : ", with topics picked by the agent."}
-              {note.textOnly && " Text only, no image."}
-              {" They appear below by themselves in a few minutes."}
-              {note.topics > 0 && note.queued > note.topics ? ` (${note.queued} posts for ${note.topics} topics: the extra posts reuse them in turn.)` : ""}
-              {note.dropped > 0 && (
-                <span className="font-medium">
-                  {` ${note.dropped} more topic${note.dropped === 1 ? " was" : "s were"} NOT used:`}
-                  {` this request tops out at ${note.queued} posts. Send them again in a second batch.`}
-                </span>
-              )}
-            </div>
+    <form onSubmit={submit} className="space-y-3" data-testid="generate-form">
+      <div className="flex items-center gap-2">
+        <label className="text-xs font-medium text-slate-600">Number of posts</label>
+        <input type="number" name="count" defaultValue={3} min={1} max={maxCount}
+          className="w-16 rounded-md border bg-white px-2 py-1 text-sm text-slate-700" />
+      </div>
+      <div>
+        <label className="text-xs text-slate-500">Topics — leave empty and the agent picks them</label>
+        <textarea name="topics" rows={4}
+          placeholder={"One idea per line. Write full sentences if you want to: commas never split an idea.\nFor an idea that needs several lines, separate the ideas with an empty line."}
+          className="mt-1 w-full rounded-md border bg-white px-2 py-1 text-sm text-slate-700" />
+        <p className="mt-1 text-xs text-slate-400">
+          One post per idea. What you write here decides what the post is about; voice,
+          structure and length stay as configured.
+        </p>
+      </div>
+      <label className="flex items-center gap-2 text-sm text-slate-700">
+        <input type="checkbox" name="text_only" value="1" /> Without image (text-only posts)
+      </label>
+      <div className="flex flex-wrap items-center gap-3">
+        <button disabled={busy} className="rounded-md bg-electric px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40">
+          {busy ? "Sending..." : "Generate"}
+        </button>
+        {!note && !error && <span className="text-xs text-slate-400">Posts appear below by themselves in a few minutes.</span>}
+      </div>
+      {error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800" data-testid="generate-error"><span className="font-medium">That didn&apos;t work: </span>{error}</div>}
+      {note && (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900" data-testid="generate-queued">
+          <span className="font-medium">{note.queued} post{note.queued === 1 ? "" : "s"} queued</span>
+          {note.topics > 0 ? ` from ${note.topics} topic${note.topics === 1 ? "" : "s"} you provided.` : ", with topics picked by the agent."}
+          {note.textOnly && " Text only, no image."}
+          {" They appear below by themselves in a few minutes."}
+          {note.topics > 0 && note.queued > note.topics ? ` (${note.queued} posts for ${note.topics} topics: the extra posts reuse them in turn.)` : ""}
+          {note.dropped > 0 && (
+            <span className="font-medium">
+              {` ${note.dropped} more topic${note.dropped === 1 ? " was" : "s were"} NOT used:`}
+              {` this request tops out at ${note.queued} posts. Send them again in a second batch.`}
+            </span>
           )}
-        </form>
-      </CardBody>
-    </Card>
+        </div>
+      )}
+    </form>
   );
 }
 
 /* ---------- comment replies ---------- */
 
-function CommentDraftsPanel({ slug, name, drafts, error, onDone }: { slug: string; name: string; drafts: CommentDraftRow[]; error: string | null; onDone: () => Promise<void> }) {
+function CommentDraftsPanel({ slug, drafts, error, locale, onDone }: { slug: string; drafts: CommentDraftRow[]; error: string | null; locale: string; onDone: () => Promise<void> }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   const open = drafts.filter(d => d.action !== "draft_done");
@@ -282,13 +379,7 @@ function CommentDraftsPanel({ slug, name, drafts, error, onDone }: { slug: strin
     setBusy(null);
   }
   return (
-    <Card>
-      <div id={`comments-${slug}`} className="scroll-mt-4" />
-      <CardHeader
-        title={`Comment replies to post by hand · ${name}`}
-        hint={error ? "could not load" : open.length === 0 ? "nothing waiting" : `${open.length} waiting`}
-      />
-      <CardBody className="space-y-3">
+    <div id={`comments-${slug}`} className="scroll-mt-4 space-y-3">
         <p className="text-xs text-slate-500">
           The engine drafts a reply for each new comment but does not post it (LinkedIn treats tool-posted replies as
           automated). Copy the draft, paste it under the comment on LinkedIn, then mark it done. Edit freely before posting.
@@ -305,7 +396,7 @@ function CommentDraftsPanel({ slug, name, drafts, error, onDone }: { slug: strin
             <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
               <span className="font-medium text-slate-700">{d.comment_author || "Unknown"}</span>
               {d.comment_type && <Badge tone="slate">{d.comment_type}</Badge>}
-              <span>{dateTime(d.created_at)}</span>
+              <span>{fmtDateTime(d.created_at, locale)}</span>
               {d.linkedin_url && (
                 <a href={d.linkedin_url} target="_blank" rel="noreferrer" className="text-electric hover:underline">
                   open post{d.sheet_row != null ? ` (row ${d.sheet_row})` : ""}
@@ -340,8 +431,7 @@ function CommentDraftsPanel({ slug, name, drafts, error, onDone }: { slug: strin
             </div>
           </details>
         )}
-      </CardBody>
-    </Card>
+    </div>
   );
 }
 
@@ -366,7 +456,8 @@ function engagementSummary(posts: CalendarRow[]) {
     avgScore: scored ? totalScore / scored : null, best, scored };
 }
 
-function AnalyticsPanel({ name, a, posts, showInternals }: { name: string; a?: AnalyticsRow; posts: CalendarRow[]; showInternals: boolean }) {
+function AnalyticsPanel({ a, posts, locale }: { a?: AnalyticsRow; posts: CalendarRow[]; locale: string }) {
+  const showInternals = true; // the full internal view, admins only
   const topicFit = Object.entries(a?.topic_icp_fit ?? {}).sort((x, y) => y[1] - x[1]);
   const s = engagementSummary(posts);
   const hasEngagement = s.published > 0 || s.scored > 0;
@@ -376,12 +467,8 @@ function AnalyticsPanel({ name, a, posts, showInternals }: { name: string; a?: A
     (a.distilled_rules?.length ?? 0) > 0 || (a.hard_negatives?.length ?? 0) > 0);
 
   return (
-    <Card>
-      <CardHeader
-        title={`Analytics · ${name}`}
-        hint={a?.computed_at ? `learned ${dateOnly(a.computed_at)}` : "no learning run yet"}
-      />
-      <CardBody className="space-y-5">
+    <div className="space-y-5">
+      <p className="text-xs text-slate-500">{a?.computed_at ? `Internal view. Learned ${fmtDate(a.computed_at, locale)}.` : "Internal view. No learning run yet."}</p>
         {!hasEngagement && !hasLearned ? (
           <EmptyState title="No analytics yet"
             hint="Metrics and ICP-fit appear after the nightly learn job runs on published posts." />
@@ -394,7 +481,7 @@ function AnalyticsPanel({ name, a, posts, showInternals }: { name: string; a?: A
                   <Kpi label="Published" value={String(s.published)} />
                   <Kpi label="Scheduled" value={String(s.scheduled)} />
                   <Kpi label="ICP engagers" value={String(s.icp)} accent />
-                  <Kpi label="Impressions" value={num(s.impressions)} />
+                  <Kpi label="Impressions" value={num(s.impressions, locale)} />
                   <Kpi label="Reactions" value={String(s.reactions)} />
                   <Kpi label="Comments" value={String(s.comments)} />
                   <Kpi label="Reposts" value={String(s.reposts)} />
@@ -413,7 +500,7 @@ function AnalyticsPanel({ name, a, posts, showInternals }: { name: string; a?: A
             {showInternals && a?.regression_alert && (
               <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
                 Engagement regression: recent avg {a.regression_alert.ma_short} vs baseline {a.regression_alert.ma_long}
-                {" "}(ratio {a.regression_alert.ratio}). Since {dateOnly(a.regression_alert.since)}.
+                {" "}(ratio {a.regression_alert.ratio}). Since {fmtDate(a.regression_alert.since, locale)}.
               </div>
             )}
             {showInternals && topicFit.length > 0 && (
@@ -451,8 +538,7 @@ function AnalyticsPanel({ name, a, posts, showInternals }: { name: string; a?: A
             )}
           </>
         )}
-      </CardBody>
-    </Card>
+    </div>
   );
 }
 
@@ -465,6 +551,25 @@ function Kpi({ label, value, accent, bad }: { label: string; value: string; acce
   );
 }
 
+/** What a client sees: only plain counts. Scores, ICP-fit and the engine's learning stay internal. */
+function ClientAnalytics({ posts, locale }: { posts: CalendarRow[]; locale: string }) {
+  const s = engagementSummary(posts);
+  const scheduled = posts.filter(p => postTab(p) === "scheduled").length;
+  if (s.published === 0 && scheduled === 0) {
+    return <EmptyState title="No numbers yet" hint="They appear once your first posts are scheduled and published." />;
+  }
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-5" data-testid="client-analytics">
+      <Kpi label="Published" value={String(s.published)} />
+      <Kpi label="Scheduled" value={String(scheduled)} />
+      <Kpi label="Impressions" value={num(s.impressions, locale)} />
+      <Kpi label="Reactions" value={String(s.reactions)} />
+      <Kpi label="Comments" value={String(s.comments)} />
+    </div>
+  );
+}
+
+
 /* ---------- one post ---------- */
 
 const DONE_NOTE: Record<string, string> = {
@@ -474,11 +579,30 @@ const DONE_NOTE: Record<string, string> = {
   "reset-published": "Unlocked for editing.",
 };
 
-const PostCard = memo(function PostCard({ r, isAdmin, ownSlug, onDone }: { r: CalendarRow; isAdmin: boolean; ownSlug: string | null; onDone: () => Promise<void> }) {
+type Panel = null | "approve" | "date" | "change" | "upload" | "more";
+type ChangeKind = "text" | "image" | "hand";
+
+function Dated({ label, value, testid }: { label: string; value: string; testid: string }) {
+  return (
+    <div data-testid={testid} className="whitespace-nowrap">
+      <span className="mr-1 text-[10px] uppercase tracking-wide text-slate-400">{label}</span>
+      <span className="tabular-nums text-slate-700">{value}</span>
+    </div>
+  );
+}
+
+const PostCard = memo(function PostCard({ r, isAdmin, ownSlug, locale, fresh, onSeen, onDone }: {
+  r: CalendarRow; isAdmin: boolean; ownSlug: string | null; locale: string; fresh: boolean; onSeen: (id: string) => void; onDone: () => Promise<void>;
+}) {
   // The action under way on this card, if any; its outcome is shown on the card.
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  // Folded to three lines; opened, the whole text and the big picture.
+  const [open, setOpen] = useState(false);
+  const [panel, setPanel] = useState<Panel>(null);
+  const [kind, setKind] = useState<ChangeKind>("text");
+  useEffect(() => { if (fresh) setOpen(true); }, [fresh]);
 
   const media = mediaOf(r);
   const img = media.kind === "image" ? media.src : null;
@@ -504,7 +628,7 @@ const PostCard = memo(function PostCard({ r, isAdmin, ownSlug, onDone }: { r: Ca
   const imageApproved = textOnly || r.image_status === "Approved" || r.image_status === "Published";
   const imagePending = !r.published_at && textStatus === "Approved" && !imageApproved;
   const fullyApproved = textStatus === "Approved" && imageApproved;
-  const status = r.published_at ? "Published" : imagePending ? "Under review" : textStatus;
+  const status = postStatus(r);
   const live = !r.published_at && textStatus !== "Suspended";
   const textRemaking = live && REMAKING.has(textStatus);
   // A picture the reviewer rejected waits in "In progress" with the engine's note: it is
@@ -515,12 +639,12 @@ const PostCard = memo(function PostCard({ r, isAdmin, ownSlug, onDone }: { r: Ca
   const check = pictureCard ? imageCheck(r) : null;
   const review = currentReview(r);
   const imageNotes = pictureCard ? imageNotesShown(r) : "";
-  const when = r.published_at || r.scheduled_for;
   const e = r.engagement;
   const aud = e?.audience ?? null;
   const isOwner = ownSlug != null && r.outreach_slug === ownSlug;
   const canManage = (isAdmin || isOwner) && status !== "Published" && r.sheet_row != null;
   const act = `/api/admin/content-post/${r.content_slug}/${r.sheet_row}`;
+  const justCreated = isJustCreated(r.created_at);
   // Both date and time prefill must be Berlin: the daemon reads post_date as naive
   // Europe/Berlin local, and (since Approve now round-trips the picker) an ISO/UTC date
   // slice could land the wrong calendar day for posts scheduled near midnight.
@@ -529,187 +653,236 @@ const PostCard = memo(function PostCard({ r, isAdmin, ownSlug, onDone }: { r: Ca
     ? new Date(r.scheduled_for).toLocaleTimeString("en-GB", { timeZone: ZONE, hour: "2-digit", minute: "2-digit", hour12: false })
     : "";
 
-  async function run(action: string, form: FormData, panel?: HTMLDetailsElement | null): Promise<boolean> {
+  async function run(action: string, form: FormData): Promise<boolean> {
     // Row-identity guard: the daemon refuses the action if this post_id no longer
     // lives at this sheet_row (suspended-row cleanup shifts rows underneath users).
     form.set("post_id", r.post_id);
     setBusy(action); setError(null); setDone(null);
     const out = await post(`${act}?action=${action}`, form);
-    if (out.ok) { setDone(DONE_NOTE[action] ?? "Saved."); if (panel) panel.open = false; }
+    if (out.ok) { setDone(DONE_NOTE[action] ?? "Saved."); setPanel(null); }
     else setError(out.error ?? "failed");
     await onDone();
     setBusy(null);
     return out.ok;
   }
   /** A form of this card: its fields go with the action named on the button pressed. */
-  const submit = (fallback: string, clear = false) => (ev: FormEvent<HTMLFormElement>) => {
+  const submit = (fallbackAction: string, clear = false) => (ev: FormEvent<HTMLFormElement>) => {
     ev.preventDefault();
     const form = ev.currentTarget;
     const pressed = (ev.nativeEvent as SubmitEvent).submitter as HTMLElement | null;
-    const data = new FormData(form);
-    void run(pressed?.dataset.action ?? fallback, data, form.closest("details")).then(ok => { if (ok && clear) form.reset(); });
+    void run(pressed?.dataset.action ?? fallbackAction, new FormData(form)).then(ok => { if (ok && clear) form.reset(); });
+  };
+  const direct = (action: string, fields: Record<string, string> = {}) => {
+    const f = new FormData();
+    for (const [k, v] of Object.entries(fields)) f.set(k, v);
+    void run(action, f);
   };
   const off = busy !== null;
-  const summary = "cursor-pointer list-none rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200";
+  const toggle = (p: Exclude<Panel, null>) => setPanel(cur => (cur === p ? null : p));
+  const toggleOpen = () => { setOpen(o => !o); if (fresh) onSeen(r.post_id); };
+
+  const imageBlock = (big: boolean) => {
+    if (busy === "upload-image") return <Working box text="Your image is being uploaded." />;
+    if (imageRemaking) return big ? <Working box text={img ? "A new image is being drawn. It appears here in a few minutes." : "The image is being drawn. It appears here in a few minutes."} /> : null;
+    if (video && !dead) {
+      return big ? (
+        <video src={video} controls preload="metadata" playsInline data-testid="post-video" aria-label="Video of the post"
+          className="max-h-96 w-full max-w-md rounded-md border bg-black object-contain" onError={() => setMediaDead(video)} />
+      ) : (
+        <div className="grid h-16 w-16 shrink-0 place-items-center rounded-md border bg-black text-lg text-white" aria-label="Video post">▶</div>
+      );
+    }
+    if (dead && big) {
+      return (
+        <div className="grid h-24 w-40 place-items-center rounded-md border border-dashed border-amber-300 bg-amber-50 text-center text-[10px] leading-4 text-amber-700" data-testid="media-unavailable">
+          <span>{video ? "video" : "image"} not loading<br /><a href={mediaDead ?? "#"} target="_blank" rel="noreferrer" className="underline">open the file</a></span>
+        </div>
+      );
+    }
+    if (img && !dead) {
+      return big ? (
+        <a href={shownImg ?? img} target="_blank" rel="noreferrer" className="block">
+          <img src={shownImg ?? img} alt="post" className="max-h-96 w-full max-w-md rounded-md border object-cover sm:w-auto" data-testid="post-image-big"
+            onError={onImgBad} onLoad={ev => { if (ev.currentTarget.naturalWidth < 400) onImgBad(); }} />
+        </a>
+      ) : (
+        <img src={shownImg ?? img} alt="post" className="h-16 w-16 shrink-0 rounded-md border object-cover" data-testid="post-image-small"
+          onError={onImgBad} onLoad={ev => { if (ev.currentTarget.naturalWidth < 400) onImgBad(); }} />
+      );
+    }
+    if (!big) return null;
+    return (
+      <div className="grid h-24 w-40 place-items-center rounded-md border border-dashed bg-slate-50 text-center text-[10px] leading-4 text-slate-400">
+        {textOnly ? "text-only post (no image by design)" : "no image"}
+      </div>
+    );
+  };
+
+  const menuItem = "block w-full rounded px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 disabled:opacity-40";
+  const kinds: { key: ChangeKind; title: string; line: string }[] = [
+    { key: "text", title: "Rewrite the text", line: "You say what to change and the engine writes the text again. It takes a few minutes." },
+    { key: "image", title: "Redo the image", line: "You say what to change and the engine draws the image again. It takes a few minutes." },
+    { key: "hand", title: "Edit by hand", line: "You change the words yourself and save them. Nothing is rewritten." },
+  ];
 
   return (
-    <div id={`post-${r.content_slug}-${r.sheet_row}`} className="scroll-mt-4 rounded-lg border p-4" data-testid="post-card" data-post={r.post_id}>
-      <div className="flex flex-col gap-4 sm:flex-row">
-        {busy === "upload-image" ? (
-          <Working box text="Your image is being uploaded." />
-        ) : imageRemaking ? (
-          <Working box text={img ? "A new image is being drawn. It appears here in a few minutes." : "The image is being drawn. It appears here in a few minutes."} />
-        ) : video && !dead ? (
-          <video src={video} controls preload="metadata" playsInline data-testid="post-video"
-            aria-label="Video of the post"
-            className="h-40 w-full shrink-0 rounded-md border bg-black object-contain sm:w-72"
-            onError={() => setMediaDead(video)} />
-        ) : shownImg && !dead ? (
-          <a href={shownImg} target="_blank" rel="noreferrer" className="shrink-0">
-            <img src={shownImg} alt="post" className="h-40 w-40 rounded-md border object-cover"
-              onError={onImgBad}
-              onLoad={ev => { if (ev.currentTarget.naturalWidth < 400 && fallback) onImgBad(); }} />
-          </a>
-        ) : dead ? (
-          <div className="grid h-40 w-40 shrink-0 place-items-center rounded-md border border-dashed border-amber-300 bg-amber-50 text-center text-[10px] leading-4 text-amber-700" data-testid="media-unavailable">
-            <span>{video ? "video" : "image"} not loading<br /><a href={mediaDead ?? "#"} target="_blank" rel="noreferrer" className="underline">open the file</a></span>
-          </div>
-        ) : textOnly ? (
-          <div className="grid h-40 w-40 shrink-0 place-items-center rounded-md border border-dashed bg-slate-50 text-center text-[10px] leading-4 text-slate-400">
-            <span>text-only<br />post<br /><span className="text-slate-300">(no image by design)</span></span>
-          </div>
-        ) : (
-          <div className="grid h-40 w-40 shrink-0 place-items-center rounded-md border border-dashed bg-slate-50 text-center text-[10px] leading-4 text-slate-400">
-            no image
-          </div>
-        )}
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-            <Badge tone={STATUS_TONE[status] ?? "slate"}>{status}</Badge>
-            {r.linkedin_deleted_at && <Badge tone="red">deleted on LinkedIn</Badge>}
-            {textOnly && <Badge tone="slate">Text-only</Badge>}
-            {imagePending && !imageRemaking && <Badge tone="amber">new image — approve to publish</Badge>}
-            {check && !imageRemaking && <span data-testid="image-check"><Badge tone={check.tone}>{check.label}</Badge></span>}
-            {!r.published_at && r.scheduled_for && new Date(r.scheduled_for) < new Date() && (
-              <Badge tone="amber">⚠ overdue ({dateOnly(r.scheduled_for)}) — {fullyApproved ? "publishes on the next run" : "approve to publish"}</Badge>
-            )}
-            {r.pain_label && <Badge tone="electric">{r.pain_label.slice(0, 40)}</Badge>}
-            {r.style && <Badge tone="slate">Style: {(r.style_label || r.style).slice(0, 40)}</Badge>}
-            {aud?.icp_pct !== undefined && aud?.total ? (
-              <Badge tone="green">{pct(aud.icp_pct)} ICP ({aud.icp}/{aud.total})</Badge>
-            ) : null}
-            <span className="ml-auto text-[10px] uppercase tracking-wide text-slate-400" data-testid="post-when">
-              {when ? dateTime(when) : "—"}
-            </span>
-          </div>
-          {e && (e.score || e.reactions || e.impressions) ? (
-            <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-600">
-              <span className="font-medium text-navy">score {e.score ?? 0}</span>
-              <span>👍 {e.reactions ?? 0}</span>
-              <span>💬 {e.comments ?? 0}</span>
-              <span>🔁 {e.reposts ?? 0}</span>
-              {typeof e.impressions === "number" && <span>📊 {num(e.impressions)} impr.</span>}
-            </div>
-          ) : status === "Published" ? (
-            <div className="mt-2 text-xs text-slate-400">metrics pending nightly sync</div>
+    <div id={`post-${r.content_slug}-${r.sheet_row}`} data-testid="post-card" data-post={r.post_id} data-fresh={fresh ? "1" : undefined}
+      className={`scroll-mt-4 rounded-lg border p-3 sm:p-4 ${fresh ? "border-electric bg-blue-50/50 ring-2 ring-electric" : ""}`}>
+      <div className="flex flex-wrap items-start gap-x-3 gap-y-2 text-[11px]">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {justCreated && <span data-testid="post-new" className="inline-flex items-center rounded-full bg-electric px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">New</span>}
+          <Badge tone={STATUS_TONE[status] ?? "slate"}>{statusLabel(status)}</Badge>
+          {r.linkedin_deleted_at && <Badge tone="red">deleted on LinkedIn</Badge>}
+          {textOnly && <Badge tone="slate">Text-only</Badge>}
+          {imagePending && !imageRemaking && <Badge tone="amber">new image — approve to publish</Badge>}
+          {check && !imageRemaking && <span data-testid="image-check"><Badge tone={check.tone}>{check.label}</Badge></span>}
+          {!r.published_at && r.scheduled_for && new Date(r.scheduled_for) < new Date() && (
+            <Badge tone="amber">⚠ overdue ({fmtDate(r.scheduled_for, locale)}) — {fullyApproved ? "publishes on the next run" : "approve to publish"}</Badge>
+          )}
+          {r.pain_label && <Badge tone="electric">{r.pain_label.slice(0, 40)}</Badge>}
+          {r.style && <Badge tone="slate">Style: {(r.style_label || r.style).slice(0, 40)}</Badge>}
+          {aud?.icp_pct !== undefined && aud?.total && isAdmin ? (
+            <Badge tone="green">{pct(aud.icp_pct)} ICP ({aud.icp}/{aud.total})</Badge>
           ) : null}
-          {textRemaking && <div className="mt-3"><Working text="The text is being rewritten. The new one appears here in a few minutes." /></div>}
-          {!imageRemaking && (check || imageNotes) && (
-            <div className={`mt-3 rounded-md border px-3 py-2 text-xs leading-5 ${check?.tone === "red" ? "border-red-200 bg-red-50 text-red-800" : check?.tone === "amber" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-slate-200 bg-slate-50 text-slate-700"}`} data-testid="image-notes">
-              <div className="font-medium">About the image</div>
-              {imageNotes && <div className="whitespace-pre-wrap">{imageNotes}</div>}
-              {check && check.issues.length > 0 && (
-                <ul className="mt-1 list-disc pl-4">{check.issues.map((t, i) => <li key={i}>{t}</li>)}</ul>
-              )}
-              {isAdmin && review && (
-                <div className="mt-1 text-[10px] text-slate-500" data-testid="image-review-detail">
-                  reviewer: {review.verdict}{review.stage ? ` · ${review.stage}` : ""}{review.model ? ` · ${review.model}` : ""}{review.at ? ` · ${dateTime(review.at)}` : ""}
-                  {review.verdict === "unreviewed" && review.reason ? ` · ${review.reason}` : ""}
-                </div>
-              )}
-            </div>
-          )}
-          {/* Full post text, readable (scrolls if very long) */}
-          <pre className={`mt-3 max-h-96 overflow-y-auto whitespace-pre-wrap rounded-md bg-slate-50 p-3 text-xs leading-5 text-slate-700 ${textRemaking ? "opacity-50" : ""}`} data-testid="post-text">{r.text_content ?? "(no text)"}</pre>
-          {r.linkedin_url && (
-            <a href={r.linkedin_url} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs text-electric hover:underline">
-              View on LinkedIn ↗
-            </a>
-          )}
+        </div>
+        <div className="ml-auto flex flex-col items-end gap-0.5 text-right">
+          <Dated testid="post-created" label="Created" value={fmtDateTime(r.created_at, locale)} />
+          <Dated testid="post-when" label={r.published_at ? "Published" : "Scheduled"} value={fmtDateTime(r.published_at || r.scheduled_for, locale)} />
         </div>
       </div>
+
+      <div className="mt-2 flex items-start gap-3">
+        {!open && imageBlock(false)}
+        <div className="min-w-0 flex-1">
+          <div className={`whitespace-pre-line text-sm leading-6 text-slate-800 ${open ? "" : "line-clamp-3"} ${textRemaking ? "opacity-50" : ""}`} data-testid="post-text">
+            {r.text_content ?? "(no text)"}
+          </div>
+          {textRemaking && <div className="mt-2"><Working text="The text is being rewritten. The new one appears here in a few minutes." /></div>}
+          {!open && imageRemaking && <div className="mt-2"><Working text={img ? "A new image is being drawn. It appears here in a few minutes." : "The image is being drawn. It appears here in a few minutes."} /></div>}
+        </div>
+      </div>
+
+      {open && !imageRemaking && (check || imageNotes) && (
+        <div className={`mt-3 rounded-md border px-3 py-2 text-xs leading-5 ${check?.tone === "red" ? "border-red-200 bg-red-50 text-red-800" : check?.tone === "amber" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-slate-200 bg-slate-50 text-slate-700"}`} data-testid="image-notes">
+          <div className="font-medium">About the image</div>
+          {imageNotes && <div className="whitespace-pre-wrap">{imageNotes}</div>}
+          {check && check.issues.length > 0 && (
+            <ul className="mt-1 list-disc pl-4">{check.issues.map((t, i) => <li key={i}>{t}</li>)}</ul>
+          )}
+          {isAdmin && review && (
+            <div className="mt-1 text-[10px] text-slate-500" data-testid="image-review-detail">
+              reviewer: {review.verdict}{review.stage ? ` · ${review.stage}` : ""}{review.model ? ` · ${review.model}` : ""}{review.at ? ` · ${fmtDateTime(review.at, locale)}` : ""}
+              {review.verdict === "unreviewed" && review.reason ? ` · ${review.reason}` : ""}
+            </div>
+          )}
+        </div>
+      )}
+      {open && <div className="mt-3">{imageBlock(true)}</div>}
+      {open && (e && (e.score || e.reactions || e.impressions) ? (
+        <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-600">
+          <span>👍 {e.reactions ?? 0}</span>
+          <span>💬 {e.comments ?? 0}</span>
+          <span>🔁 {e.reposts ?? 0}</span>
+          {typeof e.impressions === "number" && <span>📊 {num(e.impressions, locale)} impr.</span>}
+        </div>
+      ) : status === "Published" ? (
+        <div className="mt-3 text-xs text-slate-400">metrics pending nightly sync</div>
+      ) : null)}
+      {open && r.linkedin_url && (
+        <a href={r.linkedin_url} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs text-electric hover:underline">
+          View on LinkedIn ↗
+        </a>
+      )}
+      <button type="button" onClick={toggleOpen} aria-expanded={open} data-testid="post-toggle"
+        className="mt-2 text-xs font-medium text-electric hover:underline">
+        {open ? "Show less ▴" : "Show full post and image ▾"}
+      </button>
 
       {error && <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800" data-testid="post-error"><span className="font-medium">That didn&apos;t work: </span>{error}</div>}
       {busy && busy !== "upload-image" && <div className="mt-3"><Working text="Saving..." /></div>}
       {!busy && !error && done && <div className="mt-3 text-[11px] text-emerald-700" role="status" data-testid="post-done">{done}</div>}
 
       {canManage && (
-        <div className="mt-3 flex flex-wrap items-start gap-2 border-t pt-3">
-          {/* The date/time picker and Approve share ONE form so the schedule shown in
-              the picker is submitted WITH the approval. They used to be two separate
-              forms, so editing the picker and clicking Approve (without first clicking
-              "Save date") silently dropped the new date and the post kept its old slot
-              (Zayd, 2026-07-22). "Save date" reschedules without approving. */}
-          <form onSubmit={submit("approve")} className="flex flex-wrap items-center gap-1.5">
-            <input type="date" name="date" defaultValue={schedDate} key={`d${schedDate}`}
-              className="rounded-md border bg-white px-2 py-1 text-xs text-slate-700" />
-            <input type="time" name="time" defaultValue={schedTime} key={`t${schedTime}`}
-              className="rounded-md border bg-white px-2 py-1 text-xs text-slate-700" />
-            <button disabled={off} data-action="approve" data-testid="post-approve" className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40">Approve &amp; schedule</button>
-            <button disabled={off} data-action="set-date" data-testid="post-save-date"
-              className="rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200 disabled:opacity-40">Save date only</button>
-          </form>
+        <div className="mt-3 border-t pt-3">
+          <div className="flex flex-wrap items-center gap-2">
+            {status === "Approved" ? (
+              <button type="button" disabled={off} data-testid="post-reschedule" onClick={() => toggle("date")}
+                className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40">Change date</button>
+            ) : (
+              <button type="button" disabled={off} data-testid="post-approve-open" onClick={() => toggle("approve")}
+                className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40">Approve &amp; schedule</button>
+            )}
+            <button type="button" disabled={off} data-testid="post-change-open" onClick={() => toggle("change")}
+              className="rounded-md bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200 disabled:opacity-40">Request a change</button>
+            <div className="relative">
+              <button type="button" disabled={off} data-testid="post-more" aria-expanded={panel === "more"} onClick={() => toggle("more")}
+                className="rounded-md bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200 disabled:opacity-40">More ▾</button>
+              {panel === "more" && (
+                <div className="absolute left-0 z-10 mt-1 w-56 rounded-md border bg-white p-1 shadow-lg" role="menu">
+                  {status !== "Approved" && <button type="button" role="menuitem" className={menuItem} data-testid="post-save-date-open" onClick={() => setPanel("date")}>Save date only</button>}
+                  <button type="button" role="menuitem" className={menuItem} onClick={() => setPanel("upload")}>Upload your own image</button>
+                  <button type="button" role="menuitem" className={menuItem} disabled={off}
+                    onClick={() => direct("set-post-type", { post_type: textOnly ? "Image" : "Text" })}>{textOnly ? "Publish with image" : "Publish without image"}</button>
+                  <button type="button" role="menuitem" className={`${menuItem} text-red-700`} disabled={off} data-testid="post-suspend" onClick={() => direct("suspend")}>Suspend</button>
+                </div>
+              )}
+            </div>
+          </div>
 
-          <details className="group">
-            <summary className={summary}>Edit text</summary>
-            <form onSubmit={submit("edit-text")} className="mt-2 w-80 max-w-full">
-              <textarea name="text" defaultValue={r.text_content ?? ""} rows={6}
-                className="w-full rounded-md border bg-white p-2 text-xs leading-5" />
-              <button disabled={off} className="mt-1 rounded-md bg-electric px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40">Save text</button>
+          {(panel === "approve" || panel === "date") && (
+            // One form: the date and time shown are the ones submitted with the approval
+            // (Zayd, 2026-07-22: two forms dropped the new date when Approve was pressed).
+            <form onSubmit={submit(panel === "date" ? "set-date" : "approve")} className="mt-3 flex flex-wrap items-center gap-2">
+              <input type="date" name="date" defaultValue={schedDate} key={`d${schedDate}`} className="rounded-md border bg-white px-2 py-1 text-xs text-slate-700" />
+              <input type="time" name="time" defaultValue={schedTime} key={`t${schedTime}`} className="rounded-md border bg-white px-2 py-1 text-xs text-slate-700" />
+              {panel === "approve" ? (
+                <button disabled={off} data-action="approve" data-testid="post-approve" className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40">Approve &amp; schedule</button>
+              ) : (
+                <button disabled={off} data-action="set-date" data-testid="post-save-date" className="rounded-md bg-emerald-600 px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40">{status === "Approved" ? "Save new date" : "Save date only"}</button>
+              )}
+              <span className="text-[11px] text-slate-400">Date and time in Berlin time.{panel === "approve" ? " The post goes out then." : ""}</span>
             </form>
-          </details>
+          )}
 
-          <details className="group">
-            <summary className={summary}>Revise text</summary>
-            <form onSubmit={submit("revise-text", true)} className="mt-2 w-80 max-w-full">
-              <textarea name="notes" rows={3} placeholder="What to change about the text (the engine regenerates it)"
-                className="w-full rounded-md border bg-white p-2 text-xs leading-5" />
-              <button disabled={off} className="mt-1 rounded-md bg-amber-500 px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40">Request text revision</button>
-            </form>
-          </details>
+          {panel === "change" && (
+            <div className="mt-3 space-y-2" data-testid="change-panel">
+              {kinds.map(k => (
+                <div key={k.key} className={`rounded-md border p-3 ${kind === k.key ? "border-electric" : ""}`}>
+                  <button type="button" onClick={() => setKind(k.key)} aria-expanded={kind === k.key} data-testid={`change-${k.key}`} className="block w-full text-left">
+                    <span className="text-sm font-medium text-slate-800">{k.title}</span>
+                    <span className="mt-0.5 block text-xs text-slate-500">{k.line}</span>
+                  </button>
+                  {kind === k.key && k.key === "text" && (
+                    <form onSubmit={submit("revise-text", true)} className="mt-2">
+                      <textarea name="notes" rows={3} placeholder="What to change about the text" className="w-full rounded-md border bg-white p-2 text-xs leading-5" />
+                      <button disabled={off} className="mt-1 rounded-md bg-amber-500 px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40">Request text revision</button>
+                    </form>
+                  )}
+                  {kind === k.key && k.key === "image" && (
+                    <form onSubmit={submit("revise-image", true)} className="mt-2">
+                      <textarea name="notes" rows={3} placeholder="What to change about the image" className="w-full rounded-md border bg-white p-2 text-xs leading-5" />
+                      <button disabled={off} className="mt-1 rounded-md bg-amber-500 px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40">Request image revision</button>
+                    </form>
+                  )}
+                  {kind === k.key && k.key === "hand" && (
+                    <form onSubmit={submit("edit-text")} className="mt-2">
+                      <textarea name="text" defaultValue={r.text_content ?? ""} rows={6} className="w-full rounded-md border bg-white p-2 text-sm leading-6" />
+                      <button disabled={off} className="mt-1 rounded-md bg-electric px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40">Save text</button>
+                    </form>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
 
-          <details className="group">
-            <summary className={summary}>Revise image</summary>
-            <form onSubmit={submit("revise-image", true)} className="mt-2 w-80 max-w-full">
-              <textarea name="notes" rows={3} placeholder="What to change about the image (the engine regenerates it)"
-                className="w-full rounded-md border bg-white p-2 text-xs leading-5" />
-              <button disabled={off} className="mt-1 rounded-md bg-amber-500 px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40">Request image revision</button>
-            </form>
-          </details>
-
-          <details className="group">
-            <summary className={summary}>Upload image</summary>
-            <form onSubmit={submit("upload-image", true)} className="mt-2 w-80 max-w-full space-y-1">
+          {panel === "upload" && (
+            <form onSubmit={submit("upload-image", true)} className="mt-3 max-w-md space-y-1">
               <input type="file" name="image" accept="image/*" required
                 className="block w-full text-xs text-slate-600 file:mr-2 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1 file:text-xs file:font-medium file:text-slate-700 hover:file:bg-slate-200" />
               <p className="text-[11px] text-slate-400">Replaces the AI image. The post stays for review, click Approve to publish.</p>
               <button disabled={off} className="mt-1 rounded-md bg-electric px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40">Upload image</button>
             </form>
-          </details>
-
-          {/* Publish without a picture. The engine has always supported it (post_type
-              Text skips the attachment and waives the image approval), it was simply
-              never exposed: every post ever created was post_type Image. */}
-          <form onSubmit={submit("set-post-type")}>
-            <input type="hidden" name="post_type" value={textOnly ? "Image" : "Text"} />
-            <button disabled={off} className="rounded-md bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200 disabled:opacity-40">
-              {textOnly ? "Publish with image" : "Publish without image"}
-            </button>
-          </form>
-
-          <form onSubmit={submit("suspend")} className="ml-auto">
-            <button disabled={off} className="rounded-md bg-red-100 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-200 disabled:opacity-40">Suspend</button>
-          </form>
+          )}
         </div>
       )}
 

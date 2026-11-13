@@ -1,0 +1,7 @@
+{
+  "compilerOptions": {
+    "target": "ES2022", "module": "commonjs", "moduleResolution": "node", "strict": true,
+    "esModuleInterop": true, "skipLibCheck": true, "outDir": ".test-build", "rootDir": "lib", "types": ["node"]
+  },
+  "include": ["lib/content-format.ts", "lib/content-format.test.ts"]
+}
