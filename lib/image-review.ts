@@ -1,4 +1,4 @@
-import type { CalendarRow } from "@/lib/content-load";
+import type { CalendarRow } from "./content-types";
 
 /** One check of a generated picture by the engine's reviewer (daemon, 10-11-2026). */
 export type ImageReview = {
