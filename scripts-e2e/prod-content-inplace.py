@@ -33,14 +33,18 @@ with sync_playwright() as p:
     pg.goto(BASE + "/content", wait_until="networkidle", timeout=60000)
     cards = pg.locator('[data-testid="post-card"]')
     print("cards", cards.count(), "forms with action attr", pg.locator("form[action]").count())
-    # A post not approved yet: saving the date it already has changes nothing.
+    # A post still to review (the default tab; the engine's "New" reads "To review"): saving the
+    # date it already has changes nothing. "Save date only" now lives under More.
     target = None
     for i in range(cards.count()):
         c = cards.nth(i)
-        if c.locator('[data-testid="post-save-date"]').count() and "New" in c.inner_text()[:40]:
+        if c.locator('[data-testid="post-more"]').count() and "to review" in c.inner_text()[:80].lower():
             target = c; break
     if target is None:
-        print("no unapproved post to try on"); sys.exit(1)
+        print("no post to review to try on"); sys.exit(1)
+    print("created label on the card:", target.locator('[data-testid="post-created"]').count() == 1)
+    target.locator('[data-testid="post-more"]').click()
+    target.locator('[data-testid="post-save-date-open"]').click()
     pid = target.get_attribute("data-post")
     before = target.locator('[data-testid="post-when"]').inner_text()
     pg.evaluate("window.__mark = 1")

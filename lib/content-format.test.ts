@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  arrivedSince, fmtDate, fmtDateTime, isJustCreated, NEW_WINDOW_MS, pickLocale, postStatus, postTab, sortForTab, statusLabel,
+  arrivedSince, fmtDate, fmtDateTime, isJustCreated, isOverdue, showCreated, NEW_WINDOW_MS, pickLocale, postStatus, postTab, sortForTab, statusLabel,
   type PostLike,
 } from "./content-format";
 
@@ -102,4 +102,25 @@ test("posts that arrived after pressing Generate: only the unknown ones, oldest 
   assert.deepEqual(arrivedSince(rows, ["old"], 2).map(p => p.post_id), ["n1", "n2"]);
   assert.deepEqual(arrivedSince(rows, ["old", "n1", "n2", "n3"], 3), []);
   assert.deepEqual(arrivedSince(rows, ["old"], 0), []);
+});
+
+test("the new mark: a creation stamp a little ahead of the clock still counts (slow clock)", () => {
+  const now = Date.parse("2026-11-13T15:00:00Z");
+  assert.equal(isJustCreated("2026-11-13T15:02:00Z", now), true);
+  assert.equal(isJustCreated("2026-11-13T15:10:00Z", now), false);
+});
+
+test("overdue: only when not out and the date has passed", () => {
+  const now = Date.parse("2026-11-13T15:00:00Z");
+  assert.equal(isOverdue("2026-11-13T14:00:00Z", null, now), true);
+  assert.equal(isOverdue("2026-11-13T16:00:00Z", null, now), false);
+  assert.equal(isOverdue("2026-11-13T14:00:00Z", "2026-11-13T14:01:00Z", now), false);
+  assert.equal(isOverdue(null, null, now), false);
+});
+
+test("created is hidden on a published post when it is later than the publication", () => {
+  assert.equal(showCreated({ created_at: "2026-11-12T10:00:00Z", published_at: "2026-11-01T10:00:00Z" }), false);
+  assert.equal(showCreated({ created_at: "2026-10-30T10:00:00Z", published_at: "2026-11-01T10:00:00Z" }), true);
+  assert.equal(showCreated({ created_at: "2026-11-12T10:00:00Z", published_at: null }), true);
+  assert.equal(showCreated({ created_at: null, published_at: "2026-11-01T10:00:00Z" }), true);
 });

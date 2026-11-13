@@ -35,11 +35,33 @@ export function fmtDate(iso: string | null | undefined, locale: string): string 
   return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString(locale, D);
 }
 
-/** Created in the last 24 hours. Without a creation time nothing is claimed. */
-export function isJustCreated(createdAt: string | null | undefined, now: number = Date.now()): boolean {
+/** Two clocks that disagree by less than this are the same time (a creation stamp a few
+ * seconds ahead of the clock it is compared with is still "just now"). */
+const CLOCK_SLACK_MS = 5 * 60 * 1000;
+
+/** Created in the last 24 hours. Without a creation time nothing is claimed. `now` is the
+ * server's time (ContentData.servedAt moved on by the time that passed since), not the
+ * browser's own clock. */
+export function isJustCreated(createdAt: string | null | undefined, now: number): boolean {
   if (!createdAt) return false;
   const t = new Date(createdAt).getTime();
-  return Number.isFinite(t) && now - t >= 0 && now - t < NEW_WINDOW_MS;
+  return Number.isFinite(t) && now - t > -CLOCK_SLACK_MS && now - t < NEW_WINDOW_MS;
+}
+
+/** A post is overdue when it is not out and its date has passed (server time, same reason). */
+export function isOverdue(scheduledFor: string | null | undefined, publishedAt: string | null | undefined, now: number): boolean {
+  if (publishedAt || !scheduledFor) return false;
+  const t = new Date(scheduledFor).getTime();
+  return Number.isFinite(t) && t < now;
+}
+
+/** "Created" is shown unless it contradicts the post: rows loaded after the post went out
+ * carry a creation time later than the publication and would read as nonsense. */
+export function showCreated(r: { created_at?: string | null; published_at: string | null }): boolean {
+  if (!r.created_at) return true;
+  if (!r.published_at) return true;
+  const c = new Date(r.created_at).getTime(), p = new Date(r.published_at).getTime();
+  return !(Number.isFinite(c) && Number.isFinite(p) && c > p);
 }
 
 export type PostLike = {

@@ -9,9 +9,10 @@ import { mediaOf } from "@/lib/media";
 import { currentReview, imageCheck, imageNotesShown, imageParked } from "@/lib/image-review";
 import type { AnalyticsRow, CalendarRow, CommentDraftRow, ContentData } from "@/lib/content-load";
 import {
-  ZONE, arrivedSince, fmtDate, fmtDateTime, isJustCreated, postStatus, postTab, sortForTab, statusLabel,
+  ZONE, arrivedSince, fmtDate, fmtDateTime, isJustCreated, isOverdue, postStatus, postTab, showCreated, sortForTab, statusLabel,
   type PostTab,
 } from "@/lib/content-format";
+import { GENERATE_WAIT_MS, GenerationFollow, shortfall, shortfallMessage, type Run } from "@/lib/content-generation";
 
 const STATUS_TONE: Record<string, "slate" | "green" | "amber" | "red" | "electric"> = {
   Published: "green", Approved: "electric", New: "slate",
@@ -19,8 +20,6 @@ const STATUS_TONE: Record<string, "slate" | "green" | "amber" | "red" | "electri
 };
 /** The engine picked the post up (or is about to): text or image is being made again. */
 const REMAKING = new Set(["Under review", "In progress"]);
-/** How long the places kept for freshly requested posts wait before giving up. */
-const GENERATE_WAIT_MS = 20 * 60 * 1000;
 
 const num = (v: number, locale: string) => v.toLocaleString(locale);
 
@@ -86,7 +85,22 @@ function Tabs<K extends string>({ tabs, value, onChange, label, size = "md" }: {
   );
 }
 
-type Queued = { n: number; known: string[]; until: number };
+type Queued = Run;
+type Short = { asked: number; arrived: number };
+
+/** The server's time, moving on with the page open: it starts from the server's own stamp (the
+ * first render is the same on both sides) and keeps the difference to the browser's clock, so a
+ * clock that is slow or fast changes nothing. Ticks every 30 s so a mark expires by itself. */
+function useServerNow(servedAt: number): number {
+  const [now, setNow] = useState(servedAt);
+  useEffect(() => {
+    const skew = servedAt - Date.now();
+    setNow(Date.now() + skew);
+    const t = setInterval(() => setNow(Date.now() + skew), 30000);
+    return () => clearInterval(t);
+  }, [servedAt]);
+  return now;
+}
 
 export function ContentBoard({ data: served }: { data: ContentData }) {
   // What is shown: the server's render first, then whatever the background
@@ -97,23 +111,31 @@ export function ContentBoard({ data: served }: { data: ContentData }) {
   const [queued, setQueued] = useState<Record<string, Queued>>({});
   const seq = useRef(0);
 
-  const reload = useCallback(async () => {
+  const fetchFresh = useCallback(async (): Promise<ContentData | null> => {
     const mine = ++seq.current;
     try {
       const res = await fetch("/api/content", { cache: "no-store" });
-      if (!res.ok || mine !== seq.current) return;
+      if (!res.ok || mine !== seq.current) return null;
       const fresh = await res.json() as ContentData;
-      if (mine !== seq.current) return;
+      if (mine !== seq.current) return null;
       setData(prev => JSON.stringify(prev) === JSON.stringify(fresh) ? prev : {
         ...fresh,
         posts: keep(prev.posts, fresh.posts, p => p.post_id),
         drafts: keep(prev.drafts, fresh.drafts, d => d.id),
         analytics: keep(prev.analytics, fresh.analytics, a => a.content_slug),
       });
-    } catch { /* the next tick asks again */ }
+      return fresh;
+    } catch { return null; /* the next tick asks again */ }
   }, []);
+  const reload = useCallback(async () => { await fetchFresh(); }, [fetchFresh]);
 
   const { isAdmin, ownSlug, posts, analytics, drafts, locale } = data;
+  const now = useServerNow(data.servedAt);
+  // The rows as the timer last saw them (the timer must not restart with every reload).
+  const postsRef = useRef(posts); postsRef.current = posts;
+  const queuedRef = useRef(queued); queuedRef.current = queued;
+  // Per client: the wait ran out and posts were missing. Said once, until pressed again.
+  const [short, setShort] = useState<Record<string, Short>>({});
   const waiting = (slug: string) => {
     const q = queued[slug];
     if (!q) return 0;
@@ -128,18 +150,26 @@ export function ContentBoard({ data: served }: { data: ContentData }) {
   useEffect(() => {
     const t = setInterval(() => {
       if (document.hidden) return;
-      setQueued(q => {
-        const live = Object.entries(q).filter(([, v]) => v.until > Date.now());
-        return live.length === Object.keys(q).length ? q : Object.fromEntries(live);
+      const expired = Object.entries(queuedRef.current).filter(([, v]) => v.until <= Date.now());
+      if (expired.length > 0) {
+        setQueued(q => Object.fromEntries(Object.entries(q).filter(([k, v]) => !expired.some(([ek, ev]) => ek === k && ev === v))));
+      }
+      // One last look before saying anything is missing.
+      void fetchFresh().then(f => {
+        const rows = (f ?? { posts: postsRef.current }).posts;
+        for (const [slug, run] of expired) {
+          const missing = shortfall(rows.filter(p => p.content_slug === slug), run);
+          if (missing) setShort(x => ({ ...x, [slug]: missing }));
+        }
       });
-      void reload();
     }, working ? 5000 : 30000);
     return () => clearInterval(t);
-  }, [working, reload]);
+  }, [working, fetchFresh]);
 
   // `n` posts are still to come for this client, counted from the posts it has now.
   const onQueued = useCallback((slug: string, n: number, known: string[]) => {
     setQueued(q => ({ ...q, [slug]: { n, known, until: Date.now() + GENERATE_WAIT_MS } }));
+    setShort(x => { const { [slug]: _gone, ...rest } = x; void _gone; return rest; });
     void reload();
   }, [reload]);
 
@@ -169,7 +199,8 @@ export function ContentBoard({ data: served }: { data: ContentData }) {
           <SectionView key={s.slug} slug={s.slug} name={s.name} posts={s.posts} analytics={s.analytics}
             drafts={drafts.filter(d => d.content_slug === s.slug)} draftsError={data.draftsError}
             isAdmin={isAdmin} ownSlug={ownSlug} canGenerate={canGenerate} showComments={showComments}
-            locale={locale} places={places} queued={queued[s.slug]}
+            locale={locale} now={now} places={places} queued={queued[s.slug]} short={short[s.slug]}
+            onDismissShort={() => setShort(x => { const { [s.slug]: _gone, ...rest } = x; void _gone; return rest; })}
             onQueued={n => onQueued(s.slug, places + n, s.posts.map(p => p.post_id))} reload={reload} />
         );
       })}
@@ -181,42 +212,37 @@ export function ContentBoard({ data: served }: { data: ContentData }) {
 
 type Main = "posts" | "analytics" | "comments";
 
-function SectionView({ slug, name, posts, analytics, drafts, draftsError, isAdmin, ownSlug, canGenerate, showComments, locale, places, queued, onQueued, reload }: {
+function SectionView({ slug, name, posts, analytics, drafts, draftsError, isAdmin, ownSlug, canGenerate, showComments, locale, now, places, queued, short, onDismissShort, onQueued, reload }: {
   slug: string; name: string; posts: CalendarRow[]; analytics?: AnalyticsRow; drafts: CommentDraftRow[]; draftsError: string | null;
-  isAdmin: boolean; ownSlug: string | null; canGenerate: boolean; showComments: boolean; locale: string; places: number;
-  queued?: Queued; onQueued: (n: number) => void; reload: () => Promise<void>;
+  isAdmin: boolean; ownSlug: string | null; canGenerate: boolean; showComments: boolean; locale: string; now: number; places: number;
+  queued?: Queued; short?: Short; onDismissShort: () => void; onQueued: (n: number) => void; reload: () => Promise<void>;
 }) {
-  const [main, setMain] = useState<Main>("posts");
-  const [sub, setSub] = useState<PostTab>("review");
+  const [main, setMainState] = useState<Main>("posts");
+  const [sub, setSubState] = useState<PostTab>("review");
+  const follow = useRef(new GenerationFollow());
+  // Tabs chosen by the person count as "moved on their own"; the ones the page sets do not.
+  const chooseMain = (m: Main) => { follow.current.userMoved(); setMainState(m); };
+  const chooseSub = (t: PostTab) => { follow.current.userMoved(); setSubState(t); };
   const [genOpen, setGenOpen] = useState(false);
   // Posts that arrived after this person pressed Generate: highlighted until looked at.
   const [fresh, setFresh] = useState<string[]>([]);
-  const scrolled = useRef("");
 
-  // Which posts are the ones just asked for: those that came after the press, oldest first.
+  // Which posts are the ones just asked for. The key is a string, so the effect runs when
+  // the set of arrived posts changes and not with every new array of rows.
+  const arrivedKey = queued ? arrivedSince(posts, queued.known, queued.n).map(p => p.post_id).join(",") : "";
   useEffect(() => {
-    if (!queued) return;
-    const ids = arrivedSince(posts, queued.known, queued.n).map(p => p.post_id);
-    setFresh(prev => {
-      const next = [...new Set([...prev, ...ids])];
-      return next.length === prev.length ? prev : next;
-    });
-  }, [posts, queued]);
-
-  // When the last one has come, take the person to it: the review list, the newest post, highlighted.
-  const freshKey = fresh.join(",");
-  useEffect(() => {
-    if (!freshKey || places > 0 || scrolled.current === freshKey) return;
-    scrolled.current = freshKey;
-    setMain("posts"); setSub("review");
-    const target = sortForTab(posts.filter(p => fresh.includes(p.post_id)), "review")[0];
+    const out = follow.current.step(posts, queued);
+    setFresh(prev => (prev.join(",") === out.fresh.join(",") ? prev : [...out.fresh]));
+    if (!out.jumpTo) return;
+    // First new post of this run: the review list, that post, highlighted. Once.
+    setMainState("posts"); setSubState("review");
+    const target = posts.find(p => p.post_id === out.jumpTo);
     if (!target) return;
-    const t = setTimeout(() => document.getElementById(`post-${target.content_slug}-${target.sheet_row}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 120);
-    return () => clearTimeout(t);
+    setTimeout(() => document.getElementById(`post-${target.content_slug}-${target.sheet_row}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 120);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [freshKey, places]);
+  }, [arrivedKey]);
 
-  const seen = useCallback((id: string) => setFresh(f => f.filter(x => x !== id)), []);
+  const seen = useCallback((id: string) => setFresh([...follow.current.markSeen(id)]), []);
   const by: Record<PostTab, CalendarRow[]> = { review: [], scheduled: [], published: [], suspended: [] };
   for (const p of posts) by[postTab(p)].push(p);
   const openComments = drafts.filter(d => d.action !== "draft_done").length;
@@ -231,7 +257,10 @@ function SectionView({ slug, name, posts, analytics, drafts, draftsError, isAdmi
     { key: "published", label: "Published", count: by.published.length, testid: "tab-published" },
     ...(by.suspended.length > 0 ? [{ key: "suspended" as PostTab, label: "Suspended", count: by.suspended.length, testid: "tab-suspended" }] : []),
   ];
-  const shown = sortForTab(by[sub], sub);
+  // A tab that no longer exists (the last suspended post was put back) is not left selected.
+  const subNow: PostTab = sub === "suspended" && by.suspended.length === 0 ? "review" : sub;
+  useEffect(() => { if (subNow !== sub) setSubState(subNow); }, [subNow, sub]);
+  const shown = sortForTab(by[subNow], subNow);
   const EMPTY: Record<PostTab, [string, string]> = {
     review: ["Nothing to review", "New posts appear here. Approve one to schedule it."],
     scheduled: ["Nothing scheduled", "Approved posts wait here for their date."],
@@ -256,25 +285,32 @@ function SectionView({ slug, name, posts, analytics, drafts, draftsError, isAdmi
           <div className={genOpen ? "px-4 pt-3 sm:px-5" : "hidden"} data-testid="generate-panel">
             <div className="rounded-lg border bg-slate-50 p-4">
               <GeneratePanel slug={slug} maxCount={isAdmin ? 10 : 6}
-                onQueued={n => { onQueued(n); setMain("posts"); setSub("review"); }} />
+                onQueued={n => { follow.current.press(); onQueued(n); setMainState("posts"); setSubState("review"); }} />
             </div>
           </div>
         )}
-        <div className="mt-3 px-4 sm:px-5"><Tabs tabs={mainTabs} value={main} onChange={setMain} label={`${name} sections`} /></div>
+        <div className="mt-3 px-4 sm:px-5"><Tabs tabs={mainTabs} value={main} onChange={chooseMain} label={`${name} sections`} /></div>
         <CardBody className="space-y-4 p-4 sm:p-5">
+          {short && main === "posts" && (
+            <div className="flex items-start justify-between gap-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900" role="alert" data-testid="generate-short">
+              <span>{shortfallMessage(short)}</span>
+              <button type="button" onClick={onDismissShort} className="shrink-0 font-medium underline">Dismiss</button>
+            </div>
+          )}
           {main === "posts" && (
             <>
-              <Tabs tabs={subTabs} value={sub} onChange={setSub} label="Posts by state" size="sm" />
-              {sub === "review" && Array.from({ length: places }, (_, i) => (
+              <Tabs tabs={subTabs} value={subNow} onChange={chooseSub} label="Posts by state" size="sm" />
+              {subNow === "review" && Array.from({ length: places }, (_, i) => (
                 <div key={`queued-${i}`} className="flex flex-col gap-3 rounded-lg border border-dashed border-amber-300 p-4 sm:flex-row" data-testid="post-queued">
                   <Working text={`A new post is being written${places > 1 ? ` (${i + 1} of ${places})` : ""}. It appears here in a few minutes.`} />
                 </div>
               ))}
-              {shown.length === 0 && !(sub === "review" && places > 0) ? (
-                <EmptyState title={EMPTY[sub][0]} hint={EMPTY[sub][1]} />
+              {shown.length === 0 && !(subNow === "review" && places > 0) ? (
+                <EmptyState title={EMPTY[subNow][0]} hint={EMPTY[subNow][1]} />
               ) : (
                 shown.map(r => (
                   <PostCard key={r.post_id} r={r} isAdmin={isAdmin} ownSlug={ownSlug} locale={locale}
+                    isNew={isJustCreated(r.created_at, now)} overdue={isOverdue(r.scheduled_for, r.published_at, now)}
                     fresh={fresh.includes(r.post_id)} onSeen={seen} onDone={reload} />
                 ))
               )}
@@ -591,8 +627,8 @@ function Dated({ label, value, testid }: { label: string; value: string; testid:
   );
 }
 
-const PostCard = memo(function PostCard({ r, isAdmin, ownSlug, locale, fresh, onSeen, onDone }: {
-  r: CalendarRow; isAdmin: boolean; ownSlug: string | null; locale: string; fresh: boolean; onSeen: (id: string) => void; onDone: () => Promise<void>;
+const PostCard = memo(function PostCard({ r, isAdmin, ownSlug, locale, isNew, overdue, fresh, onSeen, onDone }: {
+  r: CalendarRow; isAdmin: boolean; ownSlug: string | null; locale: string; isNew: boolean; overdue: boolean; fresh: boolean; onSeen: (id: string) => void; onDone: () => Promise<void>;
 }) {
   // The action under way on this card, if any; its outcome is shown on the card.
   const [busy, setBusy] = useState<string | null>(null);
@@ -644,7 +680,6 @@ const PostCard = memo(function PostCard({ r, isAdmin, ownSlug, locale, fresh, on
   const isOwner = ownSlug != null && r.outreach_slug === ownSlug;
   const canManage = (isAdmin || isOwner) && status !== "Published" && r.sheet_row != null;
   const act = `/api/admin/content-post/${r.content_slug}/${r.sheet_row}`;
-  const justCreated = isJustCreated(r.created_at);
   // Both date and time prefill must be Berlin: the daemon reads post_date as naive
   // Europe/Berlin local, and (since Approve now round-trips the picker) an ISO/UTC date
   // slice could land the wrong calendar day for posts scheduled near midnight.
@@ -730,13 +765,13 @@ const PostCard = memo(function PostCard({ r, isAdmin, ownSlug, locale, fresh, on
       className={`scroll-mt-4 rounded-lg border p-3 sm:p-4 ${fresh ? "border-electric bg-blue-50/50 ring-2 ring-electric" : ""}`}>
       <div className="flex flex-wrap items-start gap-x-3 gap-y-2 text-[11px]">
         <div className="flex flex-wrap items-center gap-1.5">
-          {justCreated && <span data-testid="post-new" className="inline-flex items-center rounded-full bg-electric px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">New</span>}
+          {isNew && <span data-testid="post-new" className="inline-flex items-center rounded-full bg-electric px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">New</span>}
           <Badge tone={STATUS_TONE[status] ?? "slate"}>{statusLabel(status)}</Badge>
           {r.linkedin_deleted_at && <Badge tone="red">deleted on LinkedIn</Badge>}
           {textOnly && <Badge tone="slate">Text-only</Badge>}
           {imagePending && !imageRemaking && <Badge tone="amber">new image — approve to publish</Badge>}
           {check && !imageRemaking && <span data-testid="image-check"><Badge tone={check.tone}>{check.label}</Badge></span>}
-          {!r.published_at && r.scheduled_for && new Date(r.scheduled_for) < new Date() && (
+          {overdue && (
             <Badge tone="amber">⚠ overdue ({fmtDate(r.scheduled_for, locale)}) — {fullyApproved ? "publishes on the next run" : "approve to publish"}</Badge>
           )}
           {r.pain_label && <Badge tone="electric">{r.pain_label.slice(0, 40)}</Badge>}
@@ -746,7 +781,7 @@ const PostCard = memo(function PostCard({ r, isAdmin, ownSlug, locale, fresh, on
           ) : null}
         </div>
         <div className="ml-auto flex flex-col items-end gap-0.5 text-right">
-          <Dated testid="post-created" label="Created" value={fmtDateTime(r.created_at, locale)} />
+          {showCreated(r) && <Dated testid="post-created" label="Created" value={fmtDateTime(r.created_at, locale)} />}
           <Dated testid="post-when" label={r.published_at ? "Published" : "Scheduled"} value={fmtDateTime(r.published_at || r.scheduled_for, locale)} />
         </div>
       </div>
@@ -780,6 +815,7 @@ const PostCard = memo(function PostCard({ r, isAdmin, ownSlug, locale, fresh, on
       {open && <div className="mt-3">{imageBlock(true)}</div>}
       {open && (e && (e.score || e.reactions || e.impressions) ? (
         <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-600">
+          {isAdmin && <span className="font-medium text-navy" data-testid="post-score">score {e.score ?? 0}</span>}
           <span>👍 {e.reactions ?? 0}</span>
           <span>💬 {e.comments ?? 0}</span>
           <span>🔁 {e.reposts ?? 0}</span>
