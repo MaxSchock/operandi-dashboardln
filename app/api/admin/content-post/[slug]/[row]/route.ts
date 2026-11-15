@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { normalizeFreeText } from "@/lib/text-newlines";
 
 /**
  * POST /api/admin/content-post/:slug/:row?action=approve|suspend|revise-text|revise-image|edit-text|set-post-type
@@ -77,6 +78,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: stri
       payload = { ...payload, image_b64: b64, filename: file.name || "upload.png" };
     }
   }
+
+  // Single point for text typed by a person (edit-text, revise-* notes), form or JSON:
+  // browsers send textarea breaks as CRLF, the stored text keeps LF only.
+  payload = normalizeFreeText(payload);
 
   const base = process.env.STRATEGIST_BASE_URL;
   const token = process.env.STRATEGIST_WEBHOOK_TOKEN;

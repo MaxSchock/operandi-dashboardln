@@ -20,6 +20,8 @@
     "lib/content-shape.ts",
     "lib/content-shape.test.ts",
     "lib/content-generation.ts",
-    "lib/content-generation.test.ts"
+    "lib/content-generation.test.ts",
+    "lib/text-newlines.ts",
+    "lib/text-newlines.test.ts"
   ]
 }
