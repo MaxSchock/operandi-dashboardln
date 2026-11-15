@@ -615,8 +615,8 @@ const DONE_NOTE: Record<string, string> = {
   "reset-published": "Unlocked for editing.",
 };
 
-type Panel = null | "approve" | "date" | "change" | "upload" | "more";
-type ChangeKind = "text" | "image" | "hand";
+type Panel = null | "approve" | "date" | "change" | "edit" | "upload" | "more";
+type ChangeKind = "text" | "image";
 
 function Dated({ label, value, testid }: { label: string; value: string; testid: string }) {
   return (
@@ -757,7 +757,6 @@ const PostCard = memo(function PostCard({ r, isAdmin, ownSlug, locale, isNew, ov
   const kinds: { key: ChangeKind; title: string; line: string }[] = [
     { key: "text", title: "Rewrite the text", line: "You say what to change and the engine writes the text again. It takes a few minutes." },
     { key: "image", title: "Redo the image", line: "You say what to change and the engine draws the image again. It takes a few minutes." },
-    { key: "hand", title: "Edit by hand", line: "You change the words yourself and save them. Nothing is rewritten." },
   ];
 
   return (
@@ -848,6 +847,8 @@ const PostCard = memo(function PostCard({ r, isAdmin, ownSlug, locale, isNew, ov
               <button type="button" disabled={off} data-testid="post-approve-open" onClick={() => toggle("approve")}
                 className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40">Approve &amp; schedule</button>
             )}
+            <button type="button" disabled={off} data-testid="post-edit-open" aria-expanded={panel === "edit"} onClick={() => toggle("edit")}
+              className="rounded-md bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200 disabled:opacity-40">Edit text</button>
             <button type="button" disabled={off} data-testid="post-change-open" onClick={() => toggle("change")}
               className="rounded-md bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200 disabled:opacity-40">Request a change</button>
             <div className="relative">
@@ -900,15 +901,19 @@ const PostCard = memo(function PostCard({ r, isAdmin, ownSlug, locale, isNew, ov
                       <button disabled={off} className="mt-1 rounded-md bg-amber-500 px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40">Request image revision</button>
                     </form>
                   )}
-                  {kind === k.key && k.key === "hand" && (
-                    <form onSubmit={submit("edit-text")} className="mt-2">
-                      <textarea name="text" defaultValue={r.text_content ?? ""} rows={6} className="w-full rounded-md border bg-white p-2 text-sm leading-6" />
-                      <button disabled={off} className="mt-1 rounded-md bg-electric px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40">Save text</button>
-                    </form>
-                  )}
                 </div>
               ))}
             </div>
+          )}
+
+          {panel === "edit" && (
+            // You change the words yourself and save them: nothing is rewritten.
+            <form onSubmit={submit("edit-text")} className="mt-3 space-y-1" data-testid="edit-panel">
+              <textarea name="text" defaultValue={r.text_content ?? ""} rows={6} data-testid="edit-text" aria-label="Post text"
+                className="w-full rounded-md border bg-white p-2 text-sm leading-6" />
+              <p className="text-[11px] text-slate-400">You change the words yourself. Nothing is rewritten.</p>
+              <button disabled={off} data-testid="edit-save" className="rounded-md bg-electric px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40">Save text</button>
+            </form>
           )}
 
           {panel === "upload" && (
